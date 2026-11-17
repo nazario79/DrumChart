@@ -188,6 +188,20 @@ fun SongEditor(id: String, nav: Nav) {
                             placeholder = { Text("Appunto (es. solo hi-hat, fill tom, stop sul 4)") },
                             singleLine = true, modifier = Modifier.fillMaxWidth(),
                         )
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.Center,
+                            modifier = Modifier.padding(top = 4.dp),
+                        ) {
+                            SectionBpmField(sec) { v -> updSection(i) { it.copy(bpm = v) } }
+                            QUICK_METERS.forEach { m ->
+                                FilterChip(
+                                    selected = sec.meter == m,
+                                    onClick = { updSection(i) { it.copy(meter = if (it.meter == m) "" else m) } },
+                                    label = { Text(m) },
+                                )
+                            }
+                        }
                         TextButton(onClick = { grooveFor = sec.id }) {
                             Text(if (sec.groove == null) "♪ Scrivi battuta sul pentagramma" else "♪ Modifica battuta")
                         }
@@ -247,4 +261,21 @@ fun SongEditor(id: String, nav: Nav) {
             dismissButton = { TextButton(onClick = { askDelete = false }) { Text("Annulla") } },
         )
     }
+}
+
+@Composable
+private fun SectionBpmField(sec: Section, onChange: (Int?) -> Unit) {
+    var t by remember(sec.id) { mutableStateOf(sec.bpm?.toString() ?: "") }
+    OutlinedTextField(
+        value = t,
+        onValueChange = { v ->
+            t = v.filter { it.isDigit() }.take(3)
+            onChange(t.toIntOrNull()?.takeIf { it in 20..400 })
+        },
+        label = { Text("BPM sezione") },
+        placeholder = { Text("= brano") },
+        singleLine = true,
+        modifier = Modifier.width(130.dp),
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+    )
 }

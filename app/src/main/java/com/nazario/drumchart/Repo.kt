@@ -1,14 +1,19 @@
 package com.nazario.drumchart
 
 import android.content.Context
+import android.content.Intent
 import android.content.SharedPreferences
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
+import android.provider.OpenableColumns
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import org.json.JSONObject
 import java.io.File
+import java.util.concurrent.Executors
 
 /** Archivio locale: un file JSON nella memoria interna dell'app. */
 object Repo {
@@ -19,26 +24,93 @@ object Repo {
     var liveScale by mutableFloatStateOf(1f)
         private set
 
+    /** Tema chiaro in modalità live (per le serate all'aperto). */
+    var liveLight by mutableStateOf(false)
+        private set
+
+    /** Backup automatico: nome del file collegato (null = disattivo) ed eventuale errore. */
+    var autoBackupName by mutableStateOf<String?>(null)
+        private set
+    var autoBackupError by mutableStateOf<String?>(null)
+        private set
+
     private lateinit var file: File
     private lateinit var prefs: SharedPreferences
+    private lateinit var appCtx: Context
+    private var autoUri: Uri? = null
+    private val io = Executors.newSingleThreadExecutor()
+    private val main = Handler(Looper.getMainLooper())
 
     fun init(ctx: Context) {
         if (::file.isInitialized) return
         file = File(ctx.filesDir, "drumchart.json")
         prefs = ctx.getSharedPreferences("drumchart", Context.MODE_PRIVATE)
+        appCtx = ctx.applicationContext
         liveScale = prefs.getFloat("liveScale", 1f)
+        liveLight = prefs.getBoolean("liveLight", false)
+        autoUri = prefs.getString("autoUri", null)?.let { Uri.parse(it) }
+        autoBackupName = if (autoUri != null) prefs.getString("autoName", "backup") else null
         if (file.exists()) {
             runCatching { data = appDataFromJson(JSONObject(file.readText())) }
         }
     }
 
     private fun save() {
+        val text = data.toJson().toString(2)
         val tmp = File(file.path + ".tmp")
-        tmp.writeText(data.toJson().toString(2))
+        tmp.writeText(text)
         if (!tmp.renameTo(file)) {
             file.writeText(tmp.readText())
             tmp.delete()
         }
+        autoUri?.let { writeAuto(it, text) }
+    }
+
+    private fun writeAuto(uri: Uri, text: String) {
+        io.execute {
+            val r = runCatching {
+                appCtx.contentResolver.openOutputStream(uri, "wt")?.use { it.write(text.toByteArray(Charsets.UTF_8)) }
+                    ?: error("file non raggiungibile")
+            }
+            main.post { autoBackupError = r.exceptionOrNull()?.let { it.message ?: "errore di scrittura" } }
+        }
+    }
+
+    fun toggleLiveLight() {
+        liveLight = !liveLight
+        prefs.edit().putBoolean("liveLight", liveLight).apply()
+    }
+
+    /** Collega un file (anche su Google Drive) che verrà aggiornato a ogni modifica. */
+    fun enableAutoBackup(ctx: Context, uri: Uri) {
+        runCatching {
+            ctx.contentResolver.takePersistableUriPermission(
+                uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+            )
+        }
+        val name = runCatching {
+            ctx.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+                if (c.moveToFirst()) c.getString(0) else null
+            }
+        }.getOrNull() ?: "backup"
+        autoUri = uri
+        autoBackupName = name
+        prefs.edit().putString("autoUri", uri.toString()).putString("autoName", name).apply()
+        writeAuto(uri, data.toJson().toString(2))
+    }
+
+    fun disableAutoBackup(ctx: Context) {
+        autoUri?.let { u ->
+            runCatching {
+                ctx.contentResolver.releasePersistableUriPermission(
+                    u, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                )
+            }
+        }
+        autoUri = null
+        autoBackupName = null
+        autoBackupError = null
+        prefs.edit().remove("autoUri").remove("autoName").apply()
     }
 
     private fun update(f: (AppData) -> AppData) {

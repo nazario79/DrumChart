@@ -29,6 +29,10 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
@@ -66,6 +70,8 @@ fun SetlistEditor(id: String, nav: Nav) {
     var name by remember(id) { mutableStateOf(sl.name) }
     var picker by remember { mutableStateOf(false) }
     var askDelete by remember { mutableStateOf(false) }
+    var menu by remember { mutableStateOf(false) }
+    val ctx = LocalContext.current
 
     fun save(s: Setlist) = Repo.saveSetlist(s)
     fun setItems(items: List<SetItem>) = save(sl.copy(name = name, items = items))
@@ -89,7 +95,28 @@ fun SetlistEditor(id: String, nav: Nav) {
                         Icon(Icons.Default.PlayArrow, "Live", tint = if (sl.items.isNotEmpty()) Amber else Color.DarkGray)
                     }
                     if (Repo.setlist(id) != null) {
-                        IconButton(onClick = { askDelete = true }) { Icon(Icons.Default.Delete, "Elimina") }
+                        IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, "Menu") }
+                        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                            DropdownMenuItem(text = { Text("Duplica scaletta") }, onClick = {
+                                menu = false
+                                val copy = sl.copy(
+                                    id = newId(),
+                                    name = name.ifBlank { "Scaletta" } + " (copia)",
+                                    items = sl.items.map { it.copy(id = newId()) },
+                                )
+                                Repo.saveSetlist(copy)
+                                nav.replace(Screen.EditSet(copy.id))
+                            })
+                            DropdownMenuItem(text = { Text("Invia alla band (testo)") }, onClick = {
+                                menu = false; shareSetlistText(ctx, sl.copy(name = name))
+                            })
+                            DropdownMenuItem(text = { Text("Invia alla band (PDF)") }, onClick = {
+                                menu = false; shareSetlistPdf(ctx, sl.copy(name = name))
+                            })
+                            DropdownMenuItem(text = { Text("Elimina scaletta") }, onClick = {
+                                menu = false; askDelete = true
+                            })
+                        }
                     }
                 },
             )
@@ -117,13 +144,13 @@ fun SetlistEditor(id: String, nav: Nav) {
                 }
                 val song = Repo.song(item.songId)
                 val next = sl.items.getOrNull(i + 1)?.let { Repo.song(it.songId) }
-                val prevMedley = i > 0 && sl.items[i - 1].medley
-                val linked = item.medley && next != null
+                val linked = chains.linksNext(i)
+                val inChain = chain != null
                 Row {
                     // barra colorata che unisce i brani del medley
                     Box(
                         Modifier.width(6.dp).heightIn(min = 72.dp)
-                            .background(if (linked || prevMedley) Amber else Color.Transparent, RoundedCornerShape(3.dp))
+                            .background(if (inChain) Amber else Color.Transparent, RoundedCornerShape(3.dp))
                     )
                     Spacer(Modifier.width(6.dp))
                     Column(Modifier.weight(1f)) {
@@ -145,15 +172,23 @@ fun SetlistEditor(id: String, nav: Nav) {
                                         Icon(Icons.Default.Delete, "Togli", tint = Color(0xFFE57373))
                                     }
                                 }
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    FilterChip(selected = !item.medley, onClick = { updItem(i) { it.copy(medley = false) } },
+                                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    FilterChip(selected = item.role == ROLE_SINGLE,
+                                        onClick = { updItem(i) { it.copy(role = ROLE_SINGLE) } },
                                         label = { Text("Singolo") })
-                                    FilterChip(selected = item.medley, onClick = { updItem(i) { it.copy(medley = true) } },
-                                        label = { Text("Medley") })
+                                    FilterChip(selected = item.role == ROLE_IN,
+                                        onClick = { updItem(i) { it.copy(role = ROLE_IN) } },
+                                        label = { Text("Nel medley") })
+                                    FilterChip(selected = item.role == ROLE_END,
+                                        onClick = { updItem(i) { it.copy(role = ROLE_END) } },
+                                        label = { Text("Chiude il medley") })
                                 }
-                                if (item.medley && next == null) {
-                                    Text("Aggiungi un brano dopo questo per scrivere il raccordo",
-                                        color = Color.Gray, style = MaterialTheme.typography.bodySmall)
+                                if (item.role != ROLE_SINGLE && !inChain) {
+                                    Text(
+                                        if (item.role == ROLE_IN) "Metti dopo questo un brano \"Nel medley\" o \"Chiude il medley\""
+                                        else "Prima di questo serve almeno un brano \"Nel medley\"",
+                                        color = Color(0xFFFFB74D), style = MaterialTheme.typography.bodySmall,
+                                    )
                                 }
                             }
                         }
@@ -177,7 +212,7 @@ fun SetlistEditor(id: String, nav: Nav) {
             onDismiss = { picker = false },
             onPick = { ids ->
                 picker = false
-                setItems(sl.items + ids.map { SetItem(songId = it, medley = Repo.song(it)?.medley ?: false) })
+                setItems(sl.items + ids.map { SetItem(songId = it, role = if (Repo.song(it)?.medley == true) ROLE_IN else ROLE_SINGLE) })
             },
         )
     }

@@ -18,6 +18,7 @@ import androidx.compose.ui.unit.dp
 
 val QUICK_SECTIONS = listOf("Intro", "Strofa", "Pre", "Rit", "Special", "Solo", "Bridge", "Stop", "Finale")
 val QUICK_ATTACCHI = listOf("Conta 4", "Conta 2", "Parte la base", "Parte la chitarra", "Parte la tastiera", "Parte la batteria")
+val QUICK_METERS = listOf("2/4", "3/4", "5/4", "6/8", "7/8", "12/8", "Half-time", "Double-time")
 val QUICK_COUNTS = listOf("4 click → strofa", "8 click → strofa", "4 click → entra batteria", "8 click → entra batteria", "Attacco diretto")
 
 fun defaultBars(name: String): Int = when (name.lowercase()) {

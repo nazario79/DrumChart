@@ -67,6 +67,14 @@ fun HomeScreen(nav: Nav, tab: MutableIntState) {
                 .onFailure { Toast.makeText(ctx, "Errore: ${it.message}", Toast.LENGTH_LONG).show() }
         }
     }
+    val autoLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        if (uri != null) {
+            Repo.enableAutoBackup(ctx, uri)
+            Toast.makeText(ctx, "Backup automatico attivo", Toast.LENGTH_SHORT).show()
+        }
+    }
     val importLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
@@ -91,6 +99,27 @@ fun HomeScreen(nav: Nav, tab: MutableIntState) {
                                 exportLauncher.launch("DrumChart-backup-${LocalDate.now()}.json")
                             },
                         )
+                        val auto = Repo.autoBackupName
+                        if (auto == null) {
+                            DropdownMenuItem(
+                                text = { Text("Backup automatico su file (Drive)…") },
+                                onClick = { menu = false; autoLauncher.launch("DrumChart-auto.json") },
+                            )
+                        } else {
+                            DropdownMenuItem(
+                                text = {
+                                    Column {
+                                        Text("Disattiva backup automatico")
+                                        Text(
+                                            "Attivo su: $auto" + (Repo.autoBackupError?.let { "\n⚠ $it" } ?: ""),
+                                            color = if (Repo.autoBackupError != null) Color(0xFFFF8A65) else Color.Gray,
+                                            style = MaterialTheme.typography.bodySmall,
+                                        )
+                                    }
+                                },
+                                onClick = { menu = false; Repo.disableAutoBackup(ctx) },
+                            )
+                        }
                         DropdownMenuItem(
                             text = { Text("Importa backup") },
                             onClick = {
@@ -163,9 +192,9 @@ fun HomeScreen(nav: Nav, tab: MutableIntState) {
                         ) {
                             Column(Modifier.weight(1f)) {
                                 Text(sl.name.ifBlank { "(senza nome)" }, style = MaterialTheme.typography.titleMedium)
-                                val medleys = sl.items.dropLast(1).count { it.medley }
+                                val medleys = medleyChains(sl.items).size
                                 Text(
-                                    "${sl.items.size} brani" + if (medleys > 0) " · $medleys raccordi medley" else "",
+                                    "${sl.items.size} brani" + if (medleys > 0) " · $medleys medley" else "",
                                     color = Color.Gray, style = MaterialTheme.typography.bodySmall,
                                 )
                             }

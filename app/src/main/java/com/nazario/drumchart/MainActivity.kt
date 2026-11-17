@@ -77,6 +77,7 @@ sealed interface Screen {
 class Nav(private val stack: MutableList<Screen>) {
     fun go(s: Screen) { stack.add(s) }
     fun back() { if (stack.size > 1) stack.removeAt(stack.lastIndex) }
+    fun replace(s: Screen) { stack[stack.lastIndex] = s }
 }
 
 @Composable
