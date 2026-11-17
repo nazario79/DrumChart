@@ -27,7 +27,23 @@ jobs:
         run: base64 -d app/drumchart.jks.b64 > app/drumchart.jks
 
       - name: Compila APK
-        run: gradle :app:assembleRelease --stacktrace
+        run: |
+          set -o pipefail
+          gradle :app:assembleRelease 2>&1 | tee build.log
+
+      - name: Salva log errori
+        if: failure()
+        run: |
+          grep -nE "^e: |error:|FAILURE|What went wrong|Exception" -A4 build.log > errors.txt || true
+          cp build.log /tmp/build.log; cp errors.txt /tmp/errors.txt
+          git config user.name "build-bot"
+          git config user.email "build-bot@users.noreply.github.com"
+          git checkout --orphan build-log
+          git rm -rqf --cached .
+          cp /tmp/build.log /tmp/errors.txt .
+          git add -f build.log errors.txt
+          git commit -qm "Log build ${{ github.run_number }}"
+          git push -f origin build-log
 
       - name: Rinomina APK
         run: cp app/build/outputs/apk/release/app-release.apk DrumChart-${{ github.run_number }}.apk
