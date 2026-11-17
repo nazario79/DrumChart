@@ -2,6 +2,8 @@ package com.nazario.drumchart
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,6 +34,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -59,6 +62,7 @@ fun SongEditor(id: String, nav: Nav) {
     var song by remember(id) { mutableStateOf(existing ?: Song(id = id)) }
     var bpmText by remember(id) { mutableStateOf(existing?.bpm?.toString() ?: "") }
     var askDelete by remember { mutableStateOf(false) }
+    var grooveFor by remember { mutableStateOf<String?>(null) } // id della sezione
 
     fun current() = song.copy(bpm = bpmText.trim().toIntOrNull()?.takeIf { it in 20..400 })
 
@@ -132,6 +136,15 @@ fun SongEditor(id: String, nav: Nav) {
                 }
             }
             item {
+                Text("Nelle scalette di solito è", color = Color.Gray)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(selected = !song.medley, onClick = { song = song.copy(medley = false) },
+                        label = { Text("Singolo") })
+                    FilterChip(selected = song.medley, onClick = { song = song.copy(medley = true) },
+                        label = { Text("Medley (si aggancia al successivo)") })
+                }
+            }
+            item {
                 Spacer(Modifier.height(4.dp))
                 Text("Struttura", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             }
@@ -175,6 +188,14 @@ fun SongEditor(id: String, nav: Nav) {
                             placeholder = { Text("Appunto (es. solo hi-hat, fill tom, stop sul 4)") },
                             singleLine = true, modifier = Modifier.fillMaxWidth(),
                         )
+                        TextButton(onClick = { grooveFor = sec.id }) {
+                            Text(if (sec.groove == null) "♪ Scrivi battuta sul pentagramma" else "♪ Modifica battuta")
+                        }
+                        sec.groove?.let { gr ->
+                            Box(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+                                GrooveStaff(gr, 0.8f)
+                            }
+                        }
                     }
                 }
             }
@@ -199,6 +220,19 @@ fun SongEditor(id: String, nav: Nav) {
                 )
                 Spacer(Modifier.height(80.dp))
             }
+        }
+    }
+
+    grooveFor?.let { sid ->
+        val idx = song.sections.indexOfFirst { it.id == sid }
+        val sec = song.sections.getOrNull(idx)
+        if (sec != null) {
+            GrooveEditor(
+                initial = sec.groove,
+                title = sec.name,
+                onDismiss = { grooveFor = null },
+                onDone = { gr -> updSection(idx) { it.copy(groove = gr) }; grooveFor = null },
+            )
         }
     }
 

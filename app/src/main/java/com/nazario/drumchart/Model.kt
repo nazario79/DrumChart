@@ -13,6 +13,7 @@ data class Section(
     val bars: Int = 8,
     val repeat: Int = 1,
     val note: String = "",
+    val groove: Groove? = null,
 )
 
 data class Song(
@@ -22,6 +23,7 @@ data class Song(
     val bpm: Int? = null,
     val attacco: String = "",
     val note: String = "",
+    val medley: Boolean = false,
     val sections: List<Section> = emptyList(),
 )
 
@@ -49,8 +51,12 @@ data class AppData(
 
 private fun JSONObject.str(key: String) = if (has(key) && !isNull(key)) optString(key, "") else ""
 
-fun Section.toJson() = JSONObject()
-    .put("id", id).put("name", name).put("bars", bars).put("repeat", repeat).put("note", note)
+fun Section.toJson(): JSONObject {
+    val o = JSONObject()
+        .put("id", id).put("name", name).put("bars", bars).put("repeat", repeat).put("note", note)
+    if (groove != null && !groove.isEmpty()) o.put("groove", groove.toJson())
+    return o
+}
 
 fun sectionFromJson(o: JSONObject) = Section(
     id = o.str("id").ifBlank { newId() },
@@ -58,12 +64,13 @@ fun sectionFromJson(o: JSONObject) = Section(
     bars = o.optInt("bars", 8),
     repeat = o.optInt("repeat", 1).coerceAtLeast(1),
     note = o.str("note"),
+    groove = o.optJSONObject("groove")?.let { grooveFromJson(it) },
 )
 
 fun Song.toJson(): JSONObject {
     val o = JSONObject()
         .put("id", id).put("title", title).put("artist", artist)
-        .put("attacco", attacco).put("note", note)
+        .put("attacco", attacco).put("note", note).put("medley", medley)
     if (bpm != null) o.put("bpm", bpm)
     o.put("sections", JSONArray().apply { sections.forEach { put(it.toJson()) } })
     return o
@@ -78,6 +85,7 @@ fun songFromJson(o: JSONObject): Song {
         bpm = if (o.has("bpm") && !o.isNull("bpm")) o.optInt("bpm") else null,
         attacco = o.str("attacco"),
         note = o.str("note"),
+        medley = o.optBoolean("medley", false),
         sections = (0 until arr.length()).map { sectionFromJson(arr.getJSONObject(it)) },
     )
 }

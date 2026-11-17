@@ -140,13 +140,15 @@ fun SetlistEditor(id: String, nav: Nav) {
                                         Icon(Icons.Default.Delete, "Togli", tint = Color(0xFFE57373))
                                     }
                                 }
-                                if (next != null) {
-                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        FilterChip(selected = !item.medley, onClick = { updItem(i) { it.copy(medley = false) } },
-                                            label = { Text("Singolo") })
-                                        FilterChip(selected = item.medley, onClick = { updItem(i) { it.copy(medley = true) } },
-                                            label = { Text("Medley → aggancia il successivo") })
-                                    }
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    FilterChip(selected = !item.medley, onClick = { updItem(i) { it.copy(medley = false) } },
+                                        label = { Text("Singolo") })
+                                    FilterChip(selected = item.medley, onClick = { updItem(i) { it.copy(medley = true) } },
+                                        label = { Text("Medley") })
+                                }
+                                if (item.medley && next == null) {
+                                    Text("Aggiungi un brano dopo questo per scrivere il raccordo",
+                                        color = Color.Gray, style = MaterialTheme.typography.bodySmall)
                                 }
                             }
                         }
@@ -170,7 +172,7 @@ fun SetlistEditor(id: String, nav: Nav) {
             onDismiss = { picker = false },
             onPick = { ids ->
                 picker = false
-                setItems(sl.items + ids.map { SetItem(songId = it) })
+                setItems(sl.items + ids.map { SetItem(songId = it, medley = Repo.song(it)?.medley ?: false) })
             },
         )
     }

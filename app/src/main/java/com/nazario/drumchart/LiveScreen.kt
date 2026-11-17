@@ -40,6 +40,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -237,7 +238,7 @@ private fun SectionBlock(sec: Section, scale: Float) {
     Column(
         Modifier.background(bg, RoundedCornerShape(10.dp))
             .padding(horizontal = 14.dp, vertical = 8.dp)
-            .widthIn(min = (70 * scale).dp, max = (320 * scale).dp),
+            .widthIn(min = (70 * scale).dp, max = if (sec.groove != null) Dp.Unspecified else (320 * scale).dp),
     ) {
         Row(verticalAlignment = Alignment.Bottom) {
             Text(sec.name.ifBlank { "—" }.uppercase(), color = fg, fontSize = s(22f), fontWeight = FontWeight.Bold)
@@ -247,6 +248,13 @@ private fun SectionBlock(sec: Section, scale: Float) {
         if (sec.note.isNotBlank()) {
             Spacer(Modifier.height(2.dp))
             Text(sec.note, color = fg.copy(alpha = 0.9f), fontSize = s(16f))
+        }
+        sec.groove?.let { gr ->
+            Spacer(Modifier.height(6.dp))
+            Box(
+                Modifier.background(Color(0xFF111111), RoundedCornerShape(6.dp))
+                    .padding(horizontal = 6.dp)
+            ) { GrooveStaff(gr, 0.9f * scale) }
         }
     }
 }
