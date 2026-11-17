@@ -46,7 +46,7 @@ object Repo {
         save()
     }
 
-    fun setLiveScale(v: Float) {
+    fun changeLiveScale(v: Float) {
         liveScale = v.coerceIn(0.6f, 2.2f)
         prefs.edit().putFloat("liveScale", liveScale).apply()
     }

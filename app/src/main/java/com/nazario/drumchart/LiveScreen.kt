@@ -126,8 +126,8 @@ fun LiveScreen(setlistId: String?, songId: String?, nav: Nav) {
             Modifier.align(Alignment.TopEnd).safeDrawingPadding().padding(4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            TextButton(onClick = { Repo.setLiveScale(scale - 0.1f) }) { Text("A−", color = Color.Gray, fontSize = 18.sp) }
-            TextButton(onClick = { Repo.setLiveScale(scale + 0.1f) }) { Text("A+", color = Color.Gray, fontSize = 18.sp) }
+            TextButton(onClick = { Repo.changeLiveScale(scale - 0.1f) }) { Text("A−", color = Color.Gray, fontSize = 18.sp) }
+            TextButton(onClick = { Repo.changeLiveScale(scale + 0.1f) }) { Text("A+", color = Color.Gray, fontSize = 18.sp) }
             IconButton(onClick = { nav.back() }) { Icon(Icons.Default.Close, "Esci", tint = Color.Gray) }
         }
     }
