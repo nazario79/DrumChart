@@ -34,6 +34,8 @@ data class SetItem(
     val medley: Boolean = false,
     val counts: String = "",
     val transNote: String = "",
+    /** Titolo del medley: usato sul primo brano di una catena di brani agganciati. */
+    val medleyTitle: String = "",
 )
 
 data class Setlist(
@@ -92,7 +94,7 @@ fun songFromJson(o: JSONObject): Song {
 
 fun SetItem.toJson() = JSONObject()
     .put("id", id).put("songId", songId).put("medley", medley)
-    .put("counts", counts).put("transNote", transNote)
+    .put("counts", counts).put("transNote", transNote).put("medleyTitle", medleyTitle)
 
 fun setItemFromJson(o: JSONObject) = SetItem(
     id = o.str("id").ifBlank { newId() },
@@ -100,6 +102,7 @@ fun setItemFromJson(o: JSONObject) = SetItem(
     medley = o.optBoolean("medley", false),
     counts = o.str("counts"),
     transNote = o.str("transNote"),
+    medleyTitle = o.str("medleyTitle"),
 )
 
 fun Setlist.toJson() = JSONObject()
@@ -136,4 +139,19 @@ fun <T> List<T>.moved(from: Int, to: Int): List<T> {
     val x = m.removeAt(from)
     m.add(to, x)
     return m
+}
+
+/** Catene di medley in una scaletta: liste di indici di brani agganciati tra loro (almeno 2). */
+fun medleyChains(items: List<SetItem>): List<List<Int>> {
+    val chains = mutableListOf<List<Int>>()
+    var i = 0
+    while (i < items.size) {
+        if (items[i].medley && i + 1 < items.size) {
+            val start = i
+            while (i < items.size - 1 && items[i].medley) i++
+            chains += (start..i).toList()
+        }
+        i++
+    }
+    return chains
 }

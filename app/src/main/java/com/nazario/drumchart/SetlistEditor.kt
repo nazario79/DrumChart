@@ -109,7 +109,12 @@ fun SetlistEditor(id: String, nav: Nav) {
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
+            val chains = medleyChains(sl.items)
             itemsIndexed(sl.items, key = { _, it -> it.id }) { i, item ->
+                val chain = chains.find { i in it }
+                if (chain != null && chain.first() == i) {
+                    MedleyTitleField(item, chain.size) { t -> updItem(i) { it.copy(medleyTitle = t) } }
+                }
                 val song = Repo.song(item.songId)
                 val next = sl.items.getOrNull(i + 1)?.let { Repo.song(it.songId) }
                 val prevMedley = i > 0 && sl.items[i - 1].medley
@@ -188,6 +193,19 @@ fun SetlistEditor(id: String, nav: Nav) {
             dismissButton = { TextButton(onClick = { askDelete = false }) { Text("Annulla") } },
         )
     }
+}
+
+@Composable
+private fun MedleyTitleField(item: SetItem, count: Int, onChange: (String) -> Unit) {
+    var t by remember(item.id) { mutableStateOf(item.medleyTitle) }
+    OutlinedTextField(
+        value = t,
+        onValueChange = { t = it; onChange(it) },
+        label = { Text("Titolo del medley ($count brani)") },
+        placeholder = { Text("es. Medley Anni 80") },
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+    )
 }
 
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)

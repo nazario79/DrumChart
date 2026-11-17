@@ -55,6 +55,9 @@ private data class LiveEntry(
     val next: Song?,
     val linkedToNext: Boolean,
     val inMedley: Boolean,
+    val medleyTitle: String = "",
+    val medleySongs: List<String> = emptyList(),
+    val medleyPos: Int = -1,
 )
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -64,11 +67,21 @@ fun LiveScreen(setlistId: String?, songId: String?, nav: Nav) {
     val entries = remember(setlistId, songId, Repo.data) {
         if (setlist != null) {
             val pairs = setlist.items.mapNotNull { it -> Repo.song(it.songId)?.let { s -> it to s } }
+            val chains = medleyChains(pairs.map { it.first })
             pairs.mapIndexed { i, (item, song) ->
                 val next = pairs.getOrNull(i + 1)?.second
                 val linked = item.medley && next != null
-                val prevLinked = i > 0 && pairs[i - 1].first.medley
-                LiveEntry(song, item, next, linked, linked || prevLinked)
+                val chain = chains.find { i in it }
+                if (chain != null) {
+                    LiveEntry(
+                        song, item, next, linked, true,
+                        medleyTitle = pairs[chain.first()].first.medleyTitle.ifBlank { "Medley" },
+                        medleySongs = chain.map { pairs[it].second.title },
+                        medleyPos = chain.indexOf(i),
+                    )
+                } else {
+                    LiveEntry(song, item, next, linked, false)
+                }
             }
         } else {
             listOfNotNull(Repo.song(songId)?.let { LiveEntry(it, null, null, false, false) })
@@ -150,13 +163,31 @@ private fun LivePage(e: LiveEntry, index: Int, total: Int, setName: String?, sca
                 listOfNotNull(pos.ifBlank { null }, setName?.ifBlank { null }).joinToString("  ·  "),
                 color = Color.Gray, fontSize = 15.sp,
             )
-            if (e.inMedley) {
-                Spacer(Modifier.widthIn(min = 10.dp))
-                Text(
-                    "MEDLEY", color = Color.Black, fontSize = 13.sp, fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(start = 10.dp).background(Amber, RoundedCornerShape(4.dp))
-                        .padding(horizontal = 6.dp, vertical = 1.dp),
-                )
+        }
+
+        // Medley: titolo del medley e brani che lo compongono, con quello attuale in evidenza
+        if (e.inMedley) {
+            Text(
+                e.medleyTitle.uppercase(), color = Amber, fontSize = s(26f), fontWeight = FontWeight.Black,
+                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(end = 150.dp),
+            )
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.padding(end = 150.dp, bottom = 4.dp),
+            ) {
+                e.medleySongs.forEachIndexed { k, t ->
+                    val cur = k == e.medleyPos
+                    Text(
+                        "${k + 1}. $t",
+                        color = if (cur) Color.Black else if (k < e.medleyPos) Color.DarkGray else Color.LightGray,
+                        fontSize = s(16f),
+                        fontWeight = if (cur) FontWeight.Bold else FontWeight.Normal,
+                        modifier = Modifier
+                            .background(if (cur) Amber else Color(0xFF222222), RoundedCornerShape(4.dp))
+                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                    )
+                    if (k < e.medleySongs.lastIndex) Text("›", color = Color.Gray, fontSize = s(16f))
+                }
             }
         }
 
@@ -206,7 +237,7 @@ private fun LivePage(e: LiveEntry, index: Int, total: Int, setName: String?, sca
                     .background(Color(0xFF1E1808), RoundedCornerShape(10.dp))
                     .padding(horizontal = 14.dp, vertical = 10.dp)
             ) {
-                Text("MEDLEY → ${e.next.title}", color = Amber, fontSize = s(24f), fontWeight = FontWeight.Bold,
+                Text("RACCORDO → ${e.next.title}", color = Amber, fontSize = s(24f), fontWeight = FontWeight.Bold,
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     bpmChange(song.bpm, e.next.bpm)?.let {
