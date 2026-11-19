@@ -1,6 +1,10 @@
 package com.nazario.drumchart
 
 import android.app.Activity
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.ui.unit.Dp
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.lazy.LazyColumn
@@ -48,7 +52,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -84,6 +87,29 @@ private val LightPal = LivePal(
     Color(0xFFFFF3D6), Color(0xFFB26A00), Color.White, Color.Black,
     Color(0xFF1565C0), Color(0xFFD84315),
 )
+
+/** Una pagina della modalità live: un brano singolo oppure un medley intero. */
+private sealed interface LPage {
+    data class Single(val index: Int, val e: LiveEntry) : LPage
+    data class Medley(val title: String, val first: Int, val items: List<LiveEntry>) : LPage
+}
+
+private fun buildPages(entries: List<LiveEntry>): List<LPage> {
+    val out = mutableListOf<LPage>()
+    var i = 0
+    while (i < entries.size) {
+        val e = entries[i]
+        if (e.inMedley && e.medleyPos == 0) {
+            val n = e.medleySongs.size.coerceAtLeast(1)
+            out += LPage.Medley(e.medleyTitle, i, entries.subList(i, (i + n).coerceAtMost(entries.size)).toList())
+            i += n
+        } else {
+            out += LPage.Single(i, e)
+            i++
+        }
+    }
+    return out
+}
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -136,21 +162,39 @@ fun LiveScreen(setlistId: String?, songId: String?, nav: Nav) {
         return
     }
 
-    val pager = rememberPagerState { entries.size }
+    val pages = remember(entries) { buildPages(entries) }
+    val listStates = remember(pages) { pages.map { LazyListState() } }
+    val pager = rememberPagerState { pages.size }
     val scope = rememberCoroutineScope()
     var jump by remember { mutableStateOf(false) }
 
-    // Pedale Bluetooth / tastiera: avanti e indietro tra i brani
-    DisposableEffect(entries.size) {
+    /** Avanti/indietro: dentro un medley scorre al brano successivo, poi passa alla pagina dopo. */
+    fun step(delta: Int) {
+        val p = pager.currentPage
+        val page = pages.getOrNull(p) ?: return
+        if (page is LPage.Medley) {
+            val target = listStates[p].firstVisibleItemIndex + delta
+            if (target in page.items.indices) {
+                scope.launch { listStates[p].animateScrollToItem(target) }
+                return
+            }
+        }
+        val np = (p + delta).coerceIn(0, pages.lastIndex)
+        if (np == p) return
+        scope.launch {
+            val nextPage = pages[np]
+            if (nextPage is LPage.Medley) listStates[np].scrollToItem(if (delta > 0) 0 else nextPage.items.lastIndex)
+            pager.animateScrollToPage(np)
+        }
+    }
+
+    // Pedale Bluetooth / tastiera
+    DisposableEffect(pages) {
         val main = activity as? MainActivity
         main?.keyListener = { code ->
             when (code) {
-                in MainActivity.NEXT_KEYS -> {
-                    scope.launch { pager.animateScrollToPage((pager.currentPage + 1).coerceAtMost(entries.lastIndex)) }; true
-                }
-                in MainActivity.PREV_KEYS -> {
-                    scope.launch { pager.animateScrollToPage((pager.currentPage - 1).coerceAtLeast(0)) }; true
-                }
+                in MainActivity.NEXT_KEYS -> { step(1); true }
+                in MainActivity.PREV_KEYS -> { step(-1); true }
                 else -> false
             }
         }
@@ -158,9 +202,13 @@ fun LiveScreen(setlistId: String?, songId: String?, nav: Nav) {
     }
 
     val scale = Repo.liveScale
+    val total = entries.size
     Box(Modifier.fillMaxSize().background(pal.bg)) {
-        HorizontalPager(state = pager, modifier = Modifier.fillMaxSize()) { page ->
-            LivePage(entries[page], page, entries.size, setlist?.name, scale, pal)
+        HorizontalPager(state = pager, modifier = Modifier.fillMaxSize()) { p ->
+            when (val page = pages[p]) {
+                is LPage.Single -> SinglePage(page.e, page.index, total, setlist?.name, scale, pal)
+                is LPage.Medley -> MedleyPage(page, listStates[p], total, setlist?.name, scale, pal)
+            }
         }
         // Comandi piccoli in alto a destra
         Row(
@@ -180,6 +228,13 @@ fun LiveScreen(setlistId: String?, songId: String?, nav: Nav) {
     }
 
     if (jump) {
+        // brano attuale (indice in entries)
+        val curPage = pages[pager.currentPage]
+        val curEntry = when (curPage) {
+            is LPage.Single -> curPage.index
+            is LPage.Medley -> curPage.first + listStates[pager.currentPage].firstVisibleItemIndex
+                .coerceIn(0, curPage.items.lastIndex)
+        }
         AlertDialog(
             onDismissRequest = { jump = false },
             title = { Text(setlist?.name?.ifBlank { null } ?: "Scaletta") },
@@ -190,7 +245,7 @@ fun LiveScreen(setlistId: String?, songId: String?, nav: Nav) {
                             Text(e.medleyTitle.uppercase(), color = Amber, fontWeight = FontWeight.Bold,
                                 modifier = Modifier.padding(top = 8.dp, bottom = 2.dp))
                         }
-                        val cur = i == pager.currentPage
+                        val cur = i == curEntry
                         Text(
                             "${i + 1}. ${e.song.title}",
                             fontSize = 19.sp,
@@ -200,7 +255,17 @@ fun LiveScreen(setlistId: String?, songId: String?, nav: Nav) {
                                 .background(if (cur) Amber else Color.Transparent, RoundedCornerShape(6.dp))
                                 .clickable {
                                     jump = false
-                                    scope.launch { pager.scrollToPage(i) }
+                                    val pIdx = pages.indexOfFirst { pg ->
+                                        when (pg) {
+                                            is LPage.Single -> pg.index == i
+                                            is LPage.Medley -> i in pg.first until pg.first + pg.items.size
+                                        }
+                                    }.coerceAtLeast(0)
+                                    scope.launch {
+                                        val pg = pages[pIdx]
+                                        if (pg is LPage.Medley) listStates[pIdx].scrollToItem(i - pg.first)
+                                        pager.scrollToPage(pIdx)
+                                    }
                                 }
                                 .padding(start = if (e.inMedley) 18.dp else 6.dp, top = 9.dp, bottom = 9.dp, end = 6.dp),
                         )
@@ -212,121 +277,166 @@ fun LiveScreen(setlistId: String?, songId: String?, nav: Nav) {
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun LivePage(e: LiveEntry, index: Int, total: Int, setName: String?, scale: Float, pal: LivePal) {
-    fun s(v: Float): TextUnit = (v * scale).sp
-    val song = e.song
-
-    Column(
-        Modifier.fillMaxSize().safeDrawingPadding().padding(horizontal = 20.dp, vertical = 12.dp)
-    ) {
+private fun SinglePage(e: LiveEntry, index: Int, total: Int, setName: String?, scale: Float, pal: LivePal) {
+    Column(Modifier.fillMaxSize().safeDrawingPadding().padding(horizontal = 20.dp, vertical = 12.dp)) {
         val pos = if (total > 1) "${index + 1}/$total" else ""
         Text(
             listOfNotNull(pos.ifBlank { null }, setName?.ifBlank { null }).joinToString("  ·  "),
             color = pal.muted, fontSize = 15.sp,
         )
-
-        // Medley: titolo del medley e brani che lo compongono, con quello attuale in evidenza
-        if (e.inMedley) {
-            Text(
-                e.medleyTitle.uppercase(), color = pal.accent, fontSize = s(26f), fontWeight = FontWeight.Black,
-                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(end = 260.dp),
-            )
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                modifier = Modifier.padding(end = 40.dp, bottom = 4.dp),
-            ) {
-                e.medleySongs.forEachIndexed { k, t ->
-                    val cur = k == e.medleyPos
-                    Text(
-                        "${k + 1}. $t",
-                        color = if (cur) Color.Black else if (k < e.medleyPos) pal.faint else pal.fg,
-                        fontSize = s(16f),
-                        fontWeight = if (cur) FontWeight.Bold else FontWeight.Normal,
-                        modifier = Modifier
-                            .background(if (cur) Amber else pal.chip, RoundedCornerShape(4.dp))
-                            .padding(horizontal = 6.dp, vertical = 2.dp),
-                    )
-                    if (k < e.medleySongs.lastIndex) Text("›", color = pal.muted, fontSize = s(16f))
-                }
-            }
-        }
-
-        // Titolo
-        Text(
-            song.title, color = pal.fg, fontSize = s(40f), fontWeight = FontWeight.Bold,
-            maxLines = 2, overflow = TextOverflow.Ellipsis, lineHeight = s(44f),
-            modifier = Modifier.padding(end = if (e.inMedley) 0.dp else 260.dp),
-        )
-        if (song.artist.isNotBlank()) Text(song.artist, color = pal.muted, fontSize = s(18f))
-
-        // BPM e attacco
-        Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-            song.bpm?.let {
-                Text("♩ $it", color = pal.accent, fontSize = s(30f), fontWeight = FontWeight.Bold)
-                Spacer(Modifier.widthIn(min = 20.dp).padding(horizontal = 10.dp))
-            }
-            if (song.attacco.isNotBlank()) {
-                Text(song.attacco, color = pal.fg, fontSize = s(24f), fontWeight = FontWeight.SemiBold)
-            }
-        }
-
-        // Struttura
+        SongHeader(e.song, scale, pal, big = true, endPad = 260.dp)
         Column(Modifier.weight(1f).fillMaxWidth().padding(top = 12.dp).verticalScroll(rememberScrollState())) {
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                song.sections.forEachIndexed { i, sec ->
-                    SectionBlock(sec, song.bpm, scale, pal)
-                    if (i < song.sections.lastIndex) {
-                        Text("›", color = pal.faint, fontSize = s(34f),
-                            modifier = Modifier.align(Alignment.CenterVertically))
-                    }
-                }
-            }
-            if (song.note.isNotBlank()) {
-                Text(song.note, color = pal.fg, fontSize = s(20f), modifier = Modifier.padding(top = 14.dp))
-            }
+            SongStructure(e.song, scale, pal)
         }
+        NextInfo(e, total, scale, pal)
+    }
+}
 
-        // Raccordo medley o prossimo brano
-        if (e.linkedToNext && e.next != null) {
-            Column(
-                Modifier.fillMaxWidth().padding(top = 8.dp)
-                    .border(BorderStroke(2.dp, pal.accent), RoundedCornerShape(10.dp))
-                    .background(pal.panel, RoundedCornerShape(10.dp))
-                    .padding(horizontal = 14.dp, vertical = 10.dp)
-            ) {
-                Text("RACCORDO → ${e.next.title}", color = pal.accent, fontSize = s(24f), fontWeight = FontWeight.Bold,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    bpmChange(song.bpm, e.next.bpm)?.let {
-                        val from = song.bpm ?: 0
-                        val to = e.next.bpm ?: 0
-                        val c = when {
-                            to < from -> pal.slower
-                            to > from -> pal.faster
-                            else -> pal.muted
-                        }
-                        Text(it.text, color = c, fontSize = s(24f), fontWeight = FontWeight.Bold)
-                        Spacer(Modifier.padding(horizontal = 12.dp))
-                    }
-                    val counts = e.item?.counts.orEmpty()
-                    if (counts.isNotBlank()) Text(counts, color = pal.fg, fontSize = s(24f), fontWeight = FontWeight.Bold)
-                }
-                val tn = e.item?.transNote.orEmpty()
-                if (tn.isNotBlank()) Text(tn, color = pal.fg, fontSize = s(19f))
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun MedleyPage(page: LPage.Medley, ls: LazyListState, total: Int, setName: String?, scale: Float, pal: LivePal) {
+    fun s(v: Float): TextUnit = (v * scale).sp
+    val scope = rememberCoroutineScope()
+    val cur by remember(ls) { derivedStateOf { ls.firstVisibleItemIndex.coerceIn(0, page.items.lastIndex) } }
+
+    Column(Modifier.fillMaxSize().safeDrawingPadding().padding(horizontal = 20.dp, vertical = 12.dp)) {
+        val from = page.first + 1
+        val to = page.first + page.items.size
+        Text(
+            listOfNotNull("Brani $from–$to di $total", setName?.ifBlank { null }).joinToString("  ·  "),
+            color = pal.muted, fontSize = 15.sp,
+        )
+        Text(
+            page.title.uppercase(), color = pal.accent, fontSize = s(30f), fontWeight = FontWeight.Black,
+            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(end = 260.dp),
+        )
+        // elenco dei brani del medley: tocca per andare al brano
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+            modifier = Modifier.padding(top = 2.dp, bottom = 6.dp),
+        ) {
+            page.items.forEachIndexed { k, e ->
+                val isCur = k == cur
+                Text(
+                    "${k + 1}. ${e.song.title}",
+                    color = if (isCur) Color.Black else if (k < cur) pal.faint else pal.fg,
+                    fontSize = s(16f),
+                    fontWeight = if (isCur) FontWeight.Bold else FontWeight.Normal,
+                    modifier = Modifier
+                        .background(if (isCur) Amber else pal.chip, RoundedCornerShape(4.dp))
+                        .clickable { scope.launch { ls.animateScrollToItem(k) } }
+                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                )
+                if (k < page.items.lastIndex) Text("›", color = pal.muted, fontSize = s(16f))
             }
-        } else if (e.next != null) {
-            Text(
-                "Prossimo: ${e.next.title}" + (e.next.bpm?.let { "  ·  ♩ $it" } ?: ""),
-                color = pal.muted, fontSize = s(18f), modifier = Modifier.padding(top = 8.dp),
-            )
-        } else if (total > 1) {
-            Text("Fine scaletta", color = pal.faint, fontSize = s(16f), modifier = Modifier.padding(top = 8.dp))
         }
+        HorizontalDivider(color = pal.faint.copy(alpha = 0.5f))
+
+        // brani uno sotto l'altro, scorrimento verticale
+        LazyColumn(state = ls, modifier = Modifier.weight(1f).fillMaxWidth()) {
+            itemsIndexed(page.items) { k, e ->
+                Row(Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 8.dp)) {
+                    Box(
+                        Modifier.width(5.dp).heightIn(min = 60.dp)
+                            .background(if (k == cur) Amber else pal.faint.copy(alpha = 0.4f), RoundedCornerShape(3.dp))
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text("${page.first + k + 1}/$total", color = pal.muted, fontSize = 14.sp)
+                        SongHeader(e.song, scale, pal, big = false, endPad = 0.dp)
+                        Spacer(Modifier.height(8.dp))
+                        SongStructure(e.song, scale, pal)
+                        NextInfo(e, total, scale, pal)
+                    }
+                }
+            }
+            // spazio finale: anche l'ultimo brano può arrivare in cima allo schermo
+            item { Spacer(Modifier.fillParentMaxHeight(0.7f)) }
+        }
+    }
+}
+
+@Composable
+private fun SongHeader(song: Song, scale: Float, pal: LivePal, big: Boolean, endPad: Dp) {
+    fun s(v: Float): TextUnit = (v * scale).sp
+    Text(
+        song.title, color = pal.fg, fontSize = s(if (big) 40f else 32f), fontWeight = FontWeight.Bold,
+        maxLines = 2, overflow = TextOverflow.Ellipsis, lineHeight = s(if (big) 44f else 36f),
+        modifier = Modifier.padding(end = endPad),
+    )
+    if (song.artist.isNotBlank()) Text(song.artist, color = pal.muted, fontSize = s(18f))
+    Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        song.bpm?.let {
+            Text("♩ $it", color = pal.accent, fontSize = s(if (big) 30f else 26f), fontWeight = FontWeight.Bold)
+            Spacer(Modifier.widthIn(min = 20.dp).padding(horizontal = 10.dp))
+        }
+        if (song.attacco.isNotBlank()) {
+            Text(song.attacco, color = pal.fg, fontSize = s(if (big) 24f else 22f), fontWeight = FontWeight.SemiBold)
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SongStructure(song: Song, scale: Float, pal: LivePal) {
+    fun s(v: Float): TextUnit = (v * scale).sp
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        song.sections.forEachIndexed { i, sec ->
+            SectionBlock(sec, song.bpm, scale, pal)
+            if (i < song.sections.lastIndex) {
+                Text("›", color = pal.faint, fontSize = s(34f), modifier = Modifier.align(Alignment.CenterVertically))
+            }
+        }
+    }
+    if (song.note.isNotBlank()) {
+        Text(song.note, color = pal.fg, fontSize = s(20f), modifier = Modifier.padding(top = 14.dp))
+    }
+}
+
+/** Raccordo verso il brano successivo del medley, oppure "Prossimo: ...". */
+@Composable
+private fun NextInfo(e: LiveEntry, total: Int, scale: Float, pal: LivePal) {
+    fun s(v: Float): TextUnit = (v * scale).sp
+    val next = e.next
+    if (e.linkedToNext && next != null) {
+        Column(
+            Modifier.fillMaxWidth().padding(top = 10.dp)
+                .border(BorderStroke(2.dp, pal.accent), RoundedCornerShape(10.dp))
+                .background(pal.panel, RoundedCornerShape(10.dp))
+                .padding(horizontal = 14.dp, vertical = 10.dp)
+        ) {
+            Text("RACCORDO → ${next.title}", color = pal.accent, fontSize = s(24f), fontWeight = FontWeight.Bold,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                bpmChange(e.song.bpm, next.bpm)?.let {
+                    val from = e.song.bpm ?: 0
+                    val to = next.bpm ?: 0
+                    val c = when {
+                        to < from -> pal.slower
+                        to > from -> pal.faster
+                        else -> pal.muted
+                    }
+                    Text(it.text, color = c, fontSize = s(24f), fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.padding(horizontal = 12.dp))
+                }
+                val counts = e.item?.counts.orEmpty()
+                if (counts.isNotBlank()) Text(counts, color = pal.fg, fontSize = s(24f), fontWeight = FontWeight.Bold)
+            }
+            val tn = e.item?.transNote.orEmpty()
+            if (tn.isNotBlank()) Text(tn, color = pal.fg, fontSize = s(19f))
+        }
+    } else if (next != null) {
+        Text(
+            "Prossimo: ${next.title}" + (next.bpm?.let { "  ·  ♩ $it" } ?: ""),
+            color = pal.muted, fontSize = s(18f), modifier = Modifier.padding(top = 10.dp),
+        )
+    } else if (total > 1) {
+        Text("Fine scaletta", color = pal.faint, fontSize = s(16f), modifier = Modifier.padding(top = 10.dp))
     }
 }
 
