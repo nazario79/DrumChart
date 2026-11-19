@@ -1,6 +1,7 @@
 package com.nazario.drumchart
 
 import android.app.Activity
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.runtime.derivedStateOf
