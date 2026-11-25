@@ -52,6 +52,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.material3.OutlinedButton
+import android.widget.Toast
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 
@@ -63,6 +67,7 @@ fun SongEditor(id: String, nav: Nav) {
     var bpmText by remember(id) { mutableStateOf(existing?.bpm?.toString() ?: "") }
     var askDelete by remember { mutableStateOf(false) }
     var grooveFor by remember { mutableStateOf<String?>(null) } // id della sezione
+    val ctx = LocalContext.current
 
     fun current() = song.copy(bpm = bpmText.trim().toIntOrNull()?.takeIf { it in 20..400 })
 
@@ -202,8 +207,15 @@ fun SongEditor(id: String, nav: Nav) {
                                 )
                             }
                         }
-                        TextButton(onClick = { grooveFor = sec.id }) {
-                            Text(if (sec.groove == null) "♪ Scrivi battuta sul pentagramma" else "♪ Modifica battuta")
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            TextButton(onClick = { grooveFor = sec.id }) {
+                                Text(if (sec.groove == null) "♪ Scrivi battuta sul pentagramma" else "♪ Modifica battuta")
+                            }
+                            Spacer(Modifier.weight(1f))
+                            TextButton(onClick = {
+                                Repo.copySection(sec, song.title)
+                                Toast.makeText(ctx, "Sezione \"${sec.name.ifBlank { "senza nome" }}\" copiata", Toast.LENGTH_SHORT).show()
+                            }) { Text("Copia sezione") }
                         }
                         sec.groove?.let { gr ->
                             GrooveStaff(gr, 0.8f, modifier = Modifier.fillMaxWidth())
@@ -213,6 +225,19 @@ fun SongEditor(id: String, nav: Nav) {
             }
             item {
                 Text("Aggiungi sezione", color = Color.Gray)
+                Repo.copiedSection?.let { clip ->
+                    OutlinedButton(
+                        onClick = {
+                            // copia indipendente: nuovo id, modifiche separate tra i due brani
+                            song = song.copy(sections = song.sections + clip.copy(id = newId()))
+                        },
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    ) {
+                        val from = Repo.copiedFrom.ifBlank { null }?.let { " (da \"$it\")" } ?: ""
+                        Text("Incolla: ${clip.name.ifBlank { "sezione" }} · ${clip.bars} batt.$from",
+                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     (QUICK_SECTIONS + "Altro").forEach { name ->
                         AssistChip(

@@ -34,6 +34,12 @@ object Repo {
     var autoBackupError by mutableStateOf<String?>(null)
         private set
 
+    /** Sezione copiata (appunti interni dell'app), conservata anche chiudendo l'app. */
+    var copiedSection by mutableStateOf<Section?>(null)
+        private set
+    var copiedFrom by mutableStateOf("")
+        private set
+
     private lateinit var file: File
     private lateinit var prefs: SharedPreferences
     private lateinit var appCtx: Context
@@ -50,6 +56,8 @@ object Repo {
         liveLight = prefs.getBoolean("liveLight", false)
         autoUri = prefs.getString("autoUri", null)?.let { Uri.parse(it) }
         autoBackupName = if (autoUri != null) prefs.getString("autoName", "backup") else null
+        copiedSection = prefs.getString("clipSection", null)?.let { runCatching { sectionFromJson(JSONObject(it)) }.getOrNull() }
+        copiedFrom = prefs.getString("clipFrom", "") ?: ""
         if (file.exists()) {
             runCatching { data = appDataFromJson(JSONObject(file.readText())) }
         }
@@ -74,6 +82,12 @@ object Repo {
             }
             main.post { autoBackupError = r.exceptionOrNull()?.let { it.message ?: "errore di scrittura" } }
         }
+    }
+
+    fun copySection(sec: Section, songTitle: String) {
+        copiedSection = sec
+        copiedFrom = songTitle
+        prefs.edit().putString("clipSection", sec.toJson().toString()).putString("clipFrom", songTitle).apply()
     }
 
     fun toggleLiveLight() {
