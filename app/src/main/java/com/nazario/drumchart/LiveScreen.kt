@@ -76,6 +76,7 @@ private data class LivePal(
     val bg: Color, val fg: Color, val muted: Color, val faint: Color, val chip: Color,
     val panel: Color, val accent: Color, val staffBg: Color, val staffFg: Color,
     val slower: Color, val faster: Color,
+    val card: Color = Color(0xFF1C1C1C), val cardBorder: Color = Color(0xFF3A3A3A),
 )
 
 private val DarkPal = LivePal(
@@ -87,6 +88,7 @@ private val LightPal = LivePal(
     Color.White, Color.Black, Color(0xFF505050), Color(0xFF9E9E9E), Color(0xFFE6E6E6),
     Color(0xFFFFF3D6), Color(0xFFB26A00), Color.White, Color.Black,
     Color(0xFF1565C0), Color(0xFFD84315),
+    card = Color(0xFFF1F1F1), cardBorder = Color(0xFFBDBDBD),
 )
 
 /** Una pagina della modalità live: un brano singolo oppure un medley intero. */
@@ -380,21 +382,21 @@ private fun SongHeader(song: Song, scale: Float, pal: LivePal, big: Boolean, end
 @Composable
 private fun SongStructure(song: Song, scale: Float, pal: LivePal) {
     fun s(v: Float): TextUnit = (v * scale).sp
+    // tutti i blocchi uguali, in griglia, nell'ordine del brano
     FlowRow(
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
+        var n = 0
         if (song.attacco.isNotBlank()) {
-            AttaccoBlock(song.attacco, scale)
-            if (song.sections.isNotEmpty()) {
-                Text("›", color = pal.faint, fontSize = s(34f), modifier = Modifier.align(Alignment.CenterVertically))
+            n++
+            BlockCard(n, "ATTACCO", Color(0xFFB0BEC5), scale, pal) {
+                Text(song.attacco, color = pal.fg, fontSize = s(26f), fontWeight = FontWeight.Black, lineHeight = s(30f))
             }
         }
-        song.sections.forEachIndexed { i, sec ->
-            SectionBlock(sec, song.bpm, scale, pal)
-            if (i < song.sections.lastIndex) {
-                Text("›", color = pal.faint, fontSize = s(34f), modifier = Modifier.align(Alignment.CenterVertically))
-            }
+        song.sections.forEach { sec ->
+            n++
+            SectionBlock(n, sec, song.bpm, scale, pal)
         }
     }
     if (song.note.isNotBlank()) {
@@ -444,34 +446,45 @@ private fun NextInfo(e: LiveEntry, total: Int, scale: Float, pal: LivePal) {
     }
 }
 
-/** Blocco dell'attacco, nella stessa fila delle sezioni. */
+/** Scheda uniforme: striscia colorata in alto, numero d'ordine, nome, contenuto. */
 @Composable
-private fun AttaccoBlock(text: String, scale: Float) {
+private fun BlockCard(
+    n: Int, name: String, stripe: Color, scale: Float, pal: LivePal,
+    wide: Boolean = false, content: @Composable () -> Unit,
+) {
     fun s(v: Float): TextUnit = (v * scale).sp
+    val w = (190 * scale).dp
     Column(
-        Modifier.background(Color(0xFFECEFF1), RoundedCornerShape(10.dp))
-            .padding(horizontal = 14.dp, vertical = 8.dp)
-            .widthIn(min = (70 * scale).dp, max = (360 * scale).dp),
+        (if (wide) Modifier.fillMaxWidth() else Modifier.width(w))
+            .heightIn(min = (118 * scale).dp)
+            .background(pal.card, RoundedCornerShape(10.dp))
+            .border(1.dp, pal.cardBorder, RoundedCornerShape(10.dp))
     ) {
-        Text("ATTACCO", color = Color(0xFF455A64), fontSize = s(14f), fontWeight = FontWeight.Bold)
-        Text(text, color = Color.Black, fontSize = s(26f), fontWeight = FontWeight.Black, lineHeight = s(30f))
+        Box(Modifier.fillMaxWidth().height((7 * scale).dp).background(stripe, RoundedCornerShape(topStart = 10.dp, topEnd = 10.dp)))
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    name, color = pal.fg, fontSize = s(19f), fontWeight = FontWeight.Bold,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
+                )
+                Text("$n", color = pal.muted, fontSize = s(14f))
+            }
+            content()
+        }
     }
 }
 
 @Composable
-private fun SectionBlock(sec: Section, songBpm: Int?, scale: Float, pal: LivePal) {
+private fun SectionBlock(n: Int, sec: Section, songBpm: Int?, scale: Float, pal: LivePal) {
     fun s(v: Float): TextUnit = (v * scale).sp
-    val bg = sectionColor(sec.name)
-    val fg = sectionTextColor(sec.name)
-    Column(
-        Modifier.background(bg, RoundedCornerShape(10.dp))
-            .padding(horizontal = 14.dp, vertical = 8.dp)
-            .widthIn(min = (70 * scale).dp, max = if (sec.groove != null) Dp.Unspecified else (320 * scale).dp),
-    ) {
+    BlockCard(n, sec.name.ifBlank { "—" }.uppercase(), sectionColor(sec.name), scale, pal, wide = sec.groove != null) {
         Row(verticalAlignment = Alignment.Bottom) {
-            Text(sec.name.ifBlank { "—" }.uppercase(), color = fg, fontSize = s(22f), fontWeight = FontWeight.Bold)
-            Text("  ${sec.bars}", color = fg, fontSize = s(28f), fontWeight = FontWeight.Black)
-            if (sec.repeat > 1) Text(" ×${sec.repeat}", color = fg, fontSize = s(24f), fontWeight = FontWeight.Bold)
+            Text("${sec.bars}", color = pal.fg, fontSize = s(40f), fontWeight = FontWeight.Black, lineHeight = s(42f))
+            Text(if (sec.bars == 1) " batt." else " batt.", color = pal.muted, fontSize = s(15f),
+                modifier = Modifier.padding(bottom = (6 * scale).dp))
+            if (sec.repeat > 1) {
+                Text("  ×${sec.repeat}", color = pal.accent, fontSize = s(32f), fontWeight = FontWeight.Black, lineHeight = s(36f))
+            }
         }
         // cambio di BPM o di tempo solo per questa sezione
         val extra = listOfNotNull(
@@ -485,22 +498,17 @@ private fun SectionBlock(sec: Section, songBpm: Int?, scale: Float, pal: LivePal
             sec.meter.ifBlank { null },
         )
         if (extra.isNotEmpty()) {
-            Text(
-                extra.joinToString("   "), color = Color.Black, fontSize = s(18f), fontWeight = FontWeight.Black,
-                modifier = Modifier.padding(top = 2.dp).background(Color.White.copy(alpha = 0.85f), RoundedCornerShape(4.dp))
-                    .padding(horizontal = 6.dp),
-            )
+            Text(extra.joinToString("  ·  "), color = pal.accent, fontSize = s(17f), fontWeight = FontWeight.Bold)
         }
         if (sec.note.isNotBlank()) {
-            Spacer(Modifier.height(2.dp))
-            Text(sec.note, color = fg.copy(alpha = 0.9f), fontSize = s(16f))
+            Text(sec.note, color = pal.fg.copy(alpha = 0.85f), fontSize = s(16f), lineHeight = s(19f))
         }
         sec.groove?.let { gr ->
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(4.dp))
             Box(
-                Modifier.background(pal.staffBg, RoundedCornerShape(6.dp))
-                    .padding(horizontal = 6.dp)
+                Modifier.background(pal.staffBg, RoundedCornerShape(6.dp)).padding(horizontal = 6.dp)
             ) { GrooveStaff(gr, 0.9f * scale, pal.staffFg) }
+            Spacer(Modifier.height(4.dp))
         }
     }
 }
