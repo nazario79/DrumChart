@@ -190,6 +190,7 @@ class LoopPlayer {
     private var track: AudioTrack? = null
     var frames = 0
         private set
+    private var startNanos = 0L
 
     fun play(pcm: ShortArray) {
         stop()
@@ -214,15 +215,17 @@ class LoopPlayer {
         t.write(pcm, 0, pcm.size)
         t.setLoopPoints(0, pcm.size, -1)
         t.play()
+        startNanos = System.nanoTime()
         frames = pcm.size
         track = t
     }
 
     /** Casella in riproduzione, o -1 se fermo. */
+    /** Casella in riproduzione, o -1 se fermo. Calcolata dal tempo trascorso (più affidabile su tutti i dispositivi). */
     fun position(stepFrames: Int): Int {
-        val t = track ?: return -1
-        if (frames == 0 || stepFrames <= 0) return -1
-        return (t.playbackHeadPosition % frames) / stepFrames
+        if (track == null || frames == 0 || stepFrames <= 0) return -1
+        val elapsed = ((System.nanoTime() - startNanos) / 1_000_000_000.0 * DrumSynth.RATE).toLong()
+        return ((elapsed % frames) / stepFrames).toInt()
     }
 
     fun stop() {

@@ -61,6 +61,7 @@ import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -166,7 +167,7 @@ const val MAX_BARS = 8
 
 /** Disegna le battute; se non stanno in larghezza vanno a capo su più righe. */
 @Composable
-fun GrooveStaff(g: Groove, scale: Float = 1f, color: Color = Color.White, modifier: Modifier = Modifier) {
+fun GrooveStaff(g: Groove, scale: Float = 1f, color: Color = Color.White, modifier: Modifier = Modifier, playStep: Int = -1) {
     val ls = 7.5f * scale // spazio fra le linee, in dp
     val bw = barWidth(g.m)
     BoxWithConstraints(modifier) {
@@ -182,7 +183,7 @@ fun GrooveStaff(g: Groove, scale: Float = 1f, color: Color = Color.White, modifi
                 if (n <= 0) break
                 val w = (HEADER + n * bw + 0.5f) * ls
                 Canvas(Modifier.size(w.dp, (HEIGHT * ls).dp)) {
-                    drawGroove(g, ls.dp.toPx(), color, first, n, showMeter = l == 0)
+                    drawGroove(g, ls.dp.toPx(), color, first, n, showMeter = l == 0, playStep = playStep)
                 }
             }
         }
@@ -202,7 +203,9 @@ private class N(val step: Int, val hits: List<Drum>, val beams: Int, val dotted:
     var far = 0f
 }
 
-private fun DrawScope.drawGroove(g: Groove, L: Float, color: Color, firstBar: Int, nBars: Int, showMeter: Boolean) {
+private fun DrawScope.drawGroove(
+    g: Groove, L: Float, color: Color, firstBar: Int, nBars: Int, showMeter: Boolean, playStep: Int = -1,
+) {
     val m = g.m
     val staffTop = TOP * L
     fun y(pos: Int) = staffTop + (8 - pos) * L / 2f
@@ -210,6 +213,17 @@ private fun DrawScope.drawGroove(g: Groove, L: Float, color: Color, firstBar: In
     val bw = barWidth(m)
     val totalW = (HEADER + nBars * bw) * L
 
+    // evidenzia battuta e colpo in riproduzione
+    if (playStep >= 0) {
+        val pBar = playStep / m.steps
+        if (pBar in firstBar until firstBar + nBars) {
+            val rel = pBar - firstBar
+            val bx = (HEADER + rel * bw) * L
+            drawRect(Amber.copy(alpha = 0.16f), Offset(bx, y(13)), Size(bw * L, y(-4) - y(13)))
+            val cx = (HEADER + rel * bw + BAR_PAD + (playStep % m.steps) * m.slot) * L + 0.65f * L
+            drawRect(Amber.copy(alpha = 0.45f), Offset(cx - 0.5f * m.slot * L, y(13)), Size(m.slot * L, y(-4) - y(13)))
+        }
+    }
     // rigo
     for (i in 0..4) drawLine(color, Offset(0f, staffTop + i * L), Offset(totalW, staffTop + i * L), line)
     // chiave di percussioni
@@ -443,6 +457,16 @@ fun GrooveEditor(initial: Groove?, title: String, bpm: Int? = null, onDismiss: (
     }
     val hScroll = rememberScrollState()
     val cell = 38.dp
+    val density = LocalDensity.current
+    // la griglia segue la battuta in riproduzione
+    val playBar = if (playStep >= 0) playStep / g.m.steps else -1
+    LaunchedEffect(playBar) {
+        if (playBar >= 0) {
+            val gm = g.m
+            val barDp = gm.steps * 38f + (gm.steps / gm.group - 1) * 6f + 14f
+            hScroll.animateScrollTo(with(density) { (playBar * barDp).dp.roundToPx() })
+        }
+    }
     val m = g.m
 
     fun gapBefore(step: Int) = when {
@@ -515,7 +539,7 @@ fun GrooveEditor(initial: Groove?, title: String, bpm: Int? = null, onDismiss: (
                     Modifier.fillMaxWidth().padding(vertical = 6.dp).heightIn(max = 260.dp)
                         .background(Color(0xFF1C1C1C), RoundedCornerShape(8.dp))
                         .verticalScroll(rememberScrollState()).padding(horizontal = 8.dp)
-                ) { GrooveStaff(g, 1.0f, modifier = Modifier.fillMaxWidth()) }
+                ) { GrooveStaff(g, 1.0f, modifier = Modifier.fillMaxWidth(), playStep = playStep) }
 
                 Row(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
                     Column {
@@ -544,7 +568,7 @@ fun GrooveEditor(initial: Groove?, title: String, bpm: Int? = null, onDismiss: (
                                     Box(
                                         Modifier.size(cell).padding(2.dp)
                                             .then(
-                                                if (s == playStep) Modifier.border(2.dp, Color.White, RoundedCornerShape(4.dp))
+                                                if (s == playStep) Modifier.border(3.dp, Color.White, RoundedCornerShape(4.dp))
                                                 else Modifier
                                             )
                                             .background(
@@ -552,7 +576,12 @@ fun GrooveEditor(initial: Groove?, title: String, bpm: Int? = null, onDismiss: (
                                                     'x' -> Amber
                                                     'A' -> Color(0xFFFF7043)
                                                     'g' -> Color(0xFF8D7A55)
-                                                    else -> if (s % m.group == 0) Color(0xFF3A3A3A) else Color(0xFF262626)
+                                                    else -> when {
+                                                        playStep >= 0 && s / m.steps == playStep / m.steps ->
+                                                            if (s % m.group == 0) Color(0xFF5A4F25) else Color(0xFF423A1C)
+                                                        s % m.group == 0 -> Color(0xFF3A3A3A)
+                                                        else -> Color(0xFF262626)
+                                                    }
                                                 },
                                                 RoundedCornerShape(4.dp),
                                             )
