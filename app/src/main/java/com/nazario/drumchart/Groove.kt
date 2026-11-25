@@ -8,6 +8,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -137,7 +139,7 @@ fun grooveFromJson(o: JSONObject): Groove {
     val r = o.optJSONObject("rows") ?: JSONObject()
     val map = mutableMapOf<String, String>()
     r.keys().forEach { k -> map[k] = r.optString(k, "") }
-    return Groove(o.optInt("bars", 1).coerceIn(1, 2), map, o.optString("meter", "4/4").ifBlank { "4/4" })
+    return Groove(o.optInt("bars", 1).coerceIn(1, MAX_BARS), map, o.optString("meter", "4/4").ifBlank { "4/4" })
 }
 
 // ---------------- Disegno sul pentagramma ----------------
@@ -149,12 +151,31 @@ private const val HEIGHT = 14.5f
 
 private fun barWidth(m: GridMeter) = m.steps * m.slot + 2 * BAR_PAD
 
+const val MAX_BARS = 8
+
+/** Disegna le battute; se non stanno in larghezza vanno a capo su più righe. */
 @Composable
 fun GrooveStaff(g: Groove, scale: Float = 1f, color: Color = Color.White, modifier: Modifier = Modifier) {
     val ls = 7.5f * scale // spazio fra le linee, in dp
-    val w = (HEADER + g.bars * barWidth(g.m) + 0.5f) * ls
-    val h = HEIGHT * ls
-    Canvas(modifier.size(w.dp, h.dp)) { drawGroove(g, ls.dp.toPx(), color) }
+    val bw = barWidth(g.m)
+    BoxWithConstraints(modifier) {
+        val fit = if (constraints.hasBoundedWidth)
+            ((maxWidth.value / ls - HEADER - 0.5f) / bw).toInt().coerceAtLeast(1)
+        else g.bars
+        val lines = (g.bars + fit - 1) / fit
+        val per = (g.bars + lines - 1) / lines // righe bilanciate
+        Column {
+            for (l in 0 until lines) {
+                val first = l * per
+                val n = minOf(per, g.bars - first)
+                if (n <= 0) break
+                val w = (HEADER + n * bw + 0.5f) * ls
+                Canvas(Modifier.size(w.dp, (HEIGHT * ls).dp)) {
+                    drawGroove(g, ls.dp.toPx(), color, first, n, showMeter = l == 0)
+                }
+            }
+        }
+    }
 }
 
 /** Valore di una nota che dura d caselle: (numero di travi/codette, puntata). */
@@ -170,13 +191,13 @@ private class N(val step: Int, val hits: List<Drum>, val beams: Int, val dotted:
     var far = 0f
 }
 
-private fun DrawScope.drawGroove(g: Groove, L: Float, color: Color) {
+private fun DrawScope.drawGroove(g: Groove, L: Float, color: Color, firstBar: Int, nBars: Int, showMeter: Boolean) {
     val m = g.m
     val staffTop = TOP * L
     fun y(pos: Int) = staffTop + (8 - pos) * L / 2f
     val line = 0.12f * L
     val bw = barWidth(m)
-    val totalW = (HEADER + g.bars * bw) * L
+    val totalW = (HEADER + nBars * bw) * L
 
     // rigo
     for (i in 0..4) drawLine(color, Offset(0f, staffTop + i * L), Offset(totalW, staffTop + i * L), line)
@@ -188,15 +209,16 @@ private fun DrawScope.drawGroove(g: Groove, L: Float, color: Color) {
         this.color = color.toArgb(); textSize = 2.3f * L; typeface = Typeface.DEFAULT_BOLD
         isAntiAlias = true; textAlign = Paint.Align.CENTER
     }
-    drawIntoCanvas {
+    if (showMeter) drawIntoCanvas {
         val cx = 4.0f * L
         it.nativeCanvas.drawText("${m.top}", cx, y(4) - 0.15f * L, num)
         it.nativeCanvas.drawText("${m.bottom}", cx, y(0) - 0.15f * L, num)
     }
     // stanghette
-    for (b in 1..g.bars) {
+    for (b in 1..nBars) {
         val x = (HEADER + b * bw) * L
-        drawLine(color, Offset(x, y(8)), Offset(x, y(0)), if (b == g.bars) 0.3f * L else line * 1.5f)
+        val last = firstBar + b == g.bars
+        drawLine(color, Offset(x, y(8)), Offset(x, y(0)), if (last) 0.3f * L else line * 1.5f)
     }
 
     val hw = 1.3f * L
@@ -206,7 +228,7 @@ private fun DrawScope.drawGroove(g: Groove, L: Float, color: Color) {
     val beamGap = 0.8f * L
 
     fun noteX(step: Int): Float {
-        val bar = step / m.steps
+        val bar = step / m.steps - firstBar
         val inBar = step % m.steps
         return (HEADER + bar * bw + BAR_PAD + inBar * m.slot) * L + hw / 2
     }
@@ -295,7 +317,7 @@ private fun DrawScope.drawGroove(g: Groove, L: Float, color: Color) {
     }
 
     val groupsPerBar = m.steps / m.group
-    for (bar in 0 until g.bars) for (grp in 0 until groupsPerBar) {
+    for (bar in firstBar until firstBar + nBars) for (grp in 0 until groupsPerBar) {
         val base = bar * m.steps + grp * m.group
         var tripletShown = false
         for (up in listOf(true, false)) {
@@ -426,8 +448,10 @@ fun GrooveEditor(initial: Groove?, title: String, onDismiss: () -> Unit, onDone:
                         )
                     }
                     Spacer(Modifier.width(8.dp))
-                    FilterChip(selected = g.bars == 1, onClick = { g = g.withBars(1) }, label = { Text("1 battuta") })
-                    FilterChip(selected = g.bars == 2, onClick = { g = g.withBars(2) }, label = { Text("2 battute") })
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Battute", color = Color.LightGray)
+                        Stepper(g.bars, { n -> g = g.withBars(n.coerceIn(1, MAX_BARS)) })
+                    }
                     TextButton(onClick = { g = Groove(g.bars, emptyMap(), g.meter) }) { Text("Cancella tutto") }
                 }
                 askMeter?.let { k ->
@@ -439,10 +463,10 @@ fun GrooveEditor(initial: Groove?, title: String, onDismiss: () -> Unit, onDone:
                 }
                 // anteprima
                 Box(
-                    Modifier.fillMaxWidth().padding(vertical = 6.dp)
+                    Modifier.fillMaxWidth().padding(vertical = 6.dp).heightIn(max = 260.dp)
                         .background(Color(0xFF1C1C1C), RoundedCornerShape(8.dp))
-                        .horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp)
-                ) { GrooveStaff(g, 1.1f) }
+                        .verticalScroll(rememberScrollState()).padding(horizontal = 8.dp)
+                ) { GrooveStaff(g, 1.0f, modifier = Modifier.fillMaxWidth()) }
 
                 Row(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
                     Column {

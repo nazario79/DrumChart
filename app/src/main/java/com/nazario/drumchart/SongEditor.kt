@@ -206,9 +206,7 @@ fun SongEditor(id: String, nav: Nav) {
                             Text(if (sec.groove == null) "♪ Scrivi battuta sul pentagramma" else "♪ Modifica battuta")
                         }
                         sec.groove?.let { gr ->
-                            Box(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
-                                GrooveStaff(gr, 0.8f)
-                            }
+                            GrooveStaff(gr, 0.8f, modifier = Modifier.fillMaxWidth())
                         }
                     }
                 }
