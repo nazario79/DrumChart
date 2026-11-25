@@ -1,6 +1,15 @@
 package com.nazario.drumchart
 
 import android.app.Activity
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import kotlinx.coroutines.delay
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.material3.HorizontalDivider
@@ -170,6 +179,22 @@ fun LiveScreen(setlistId: String?, songId: String?, nav: Nav) {
     val pager = rememberPagerState { pages.size }
     val scope = rememberCoroutineScope()
     var jump by remember { mutableStateOf(false) }
+    val st = Repo.settings
+
+    // Lampeggio del titolo del brano corrente (pedale o tocco a due dita)
+    var blinkOn by remember { mutableStateOf(false) }
+    var blinkPhase by remember { mutableStateOf(false) }
+    LaunchedEffect(blinkOn, st.blinkFast) {
+        blinkPhase = false
+        while (blinkOn) {
+            blinkPhase = !blinkPhase
+            delay(if (st.blinkFast) 280L else 600L)
+        }
+        blinkPhase = false
+    }
+    // cambiando brano il lampeggio si spegne
+    val curItem = listStates.getOrNull(pager.currentPage)?.firstVisibleItemIndex ?: 0
+    LaunchedEffect(pager.currentPage, curItem) { blinkOn = false }
 
     /** Avanti/indietro: dentro un medley scorre al brano successivo, poi passa alla pagina dopo. */
     fun step(delta: Int) {
@@ -191,26 +216,60 @@ fun LiveScreen(setlistId: String?, songId: String?, nav: Nav) {
         }
     }
 
-    // Pedale Bluetooth / tastiera
+    // Pedale Bluetooth / tastiera (tasti configurabili nelle Impostazioni)
     DisposableEffect(pages) {
         val main = activity as? MainActivity
         main?.keyListener = { code ->
-            when (code) {
-                in MainActivity.NEXT_KEYS -> { step(1); true }
-                in MainActivity.PREV_KEYS -> { step(-1); true }
+            val cfg = Repo.settings
+            if (!cfg.pedalEnabled) false
+            else when (code) {
+                in cfg.keysNext -> { step(1); true }
+                in cfg.keysPrev -> { step(-1); true }
+                in cfg.keysBlink -> { blinkOn = !blinkOn; true }
                 else -> false
             }
         }
         onDispose { main?.keyListener = null }
     }
+    val onStep by rememberUpdatedState<(Int) -> Unit> { d -> step(d) }
+    val topZone = with(LocalDensity.current) { 72.dp.toPx() }
 
     val scale = Repo.liveScale
     val total = entries.size
-    Box(Modifier.fillMaxSize().background(pal.bg)) {
-        HorizontalPager(state = pager, modifier = Modifier.fillMaxSize()) { p ->
+    val inv = blinkOn && blinkPhase
+    Box(
+        Modifier.fillMaxSize().background(pal.bg)
+            // gesti: tocco a due dita = lampeggio, tocco sui bordi = avanti/indietro (osservati senza bloccare lo scorrimento)
+            .pointerInput(st.edgeTap, st.twoFingerBlink) {
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                    val start = down.position
+                    var maxPointers = 1
+                    var moved = false
+                    var endTime = down.uptimeMillis
+                    while (true) {
+                        val ev = awaitPointerEvent(PointerEventPass.Initial)
+                        val pressed = ev.changes.count { it.pressed }
+                        if (pressed > maxPointers) maxPointers = pressed
+                        ev.changes.firstOrNull { it.id == down.id }?.let {
+                            if ((it.position - start).getDistance() > viewConfiguration.touchSlop) moved = true
+                            endTime = it.uptimeMillis
+                        }
+                        if (pressed == 0) break
+                    }
+                    if (maxPointers >= 2) {
+                        if (st.twoFingerBlink) blinkOn = !blinkOn
+                    } else if (st.edgeTap && !moved && endTime - down.uptimeMillis < 450 && start.y > topZone) {
+                        val w = size.width
+                        if (start.x < w * 0.18f) onStep(-1) else if (start.x > w * 0.82f) onStep(1)
+                    }
+                }
+            }
+    ) {
+        HorizontalPager(state = pager, modifier = Modifier.fillMaxSize(), userScrollEnabled = st.swipe) { p ->
             when (val page = pages[p]) {
-                is LPage.Single -> SinglePage(page.e, page.index, total, setlist?.name, scale, pal)
-                is LPage.Medley -> MedleyPage(page, listStates[p], total, setlist?.name, scale, pal)
+                is LPage.Single -> SinglePage(page.e, page.index, total, setlist?.name, scale, pal, inv && p == pager.currentPage)
+                is LPage.Medley -> MedleyPage(page, listStates[p], total, setlist?.name, scale, pal, inv && p == pager.currentPage)
             }
         }
         // Comandi piccoli in alto a destra
@@ -281,14 +340,14 @@ fun LiveScreen(setlistId: String?, songId: String?, nav: Nav) {
 }
 
 @Composable
-private fun SinglePage(e: LiveEntry, index: Int, total: Int, setName: String?, scale: Float, pal: LivePal) {
+private fun SinglePage(e: LiveEntry, index: Int, total: Int, setName: String?, scale: Float, pal: LivePal, inv: Boolean) {
     Column(Modifier.fillMaxSize().safeDrawingPadding().padding(horizontal = 20.dp, vertical = 12.dp)) {
         val pos = if (total > 1) "${index + 1}/$total" else ""
         Text(
             listOfNotNull(pos.ifBlank { null }, setName?.ifBlank { null }).joinToString("  ·  "),
             color = pal.muted, fontSize = 15.sp,
         )
-        SongHeader(e.song, scale, pal, big = true, endPad = 260.dp)
+        SongHeader(e.song, scale, pal, big = true, endPad = 260.dp, inverted = inv)
         Column(Modifier.weight(1f).fillMaxWidth().padding(top = 12.dp).verticalScroll(rememberScrollState())) {
             SongStructure(e.song, scale, pal)
         }
@@ -298,7 +357,7 @@ private fun SinglePage(e: LiveEntry, index: Int, total: Int, setName: String?, s
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun MedleyPage(page: LPage.Medley, ls: LazyListState, total: Int, setName: String?, scale: Float, pal: LivePal) {
+private fun MedleyPage(page: LPage.Medley, ls: LazyListState, total: Int, setName: String?, scale: Float, pal: LivePal, inv: Boolean) {
     fun s(v: Float): TextUnit = (v * scale).sp
     val scope = rememberCoroutineScope()
     val cur by remember(ls) { derivedStateOf { ls.firstVisibleItemIndex.coerceIn(0, page.items.lastIndex) } }
@@ -348,7 +407,7 @@ private fun MedleyPage(page: LPage.Medley, ls: LazyListState, total: Int, setNam
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
                         Text("${page.first + k + 1}/$total", color = pal.muted, fontSize = 14.sp)
-                        SongHeader(e.song, scale, pal, big = false, endPad = 0.dp)
+                        SongHeader(e.song, scale, pal, big = false, endPad = 0.dp, inverted = inv && k == cur)
                         Spacer(Modifier.height(8.dp))
                         SongStructure(e.song, scale, pal)
                         NextInfo(e, total, scale, pal)
@@ -362,13 +421,9 @@ private fun MedleyPage(page: LPage.Medley, ls: LazyListState, total: Int, setNam
 }
 
 @Composable
-private fun SongHeader(song: Song, scale: Float, pal: LivePal, big: Boolean, endPad: Dp) {
+private fun SongHeader(song: Song, scale: Float, pal: LivePal, big: Boolean, endPad: Dp, inverted: Boolean = false) {
     fun s(v: Float): TextUnit = (v * scale).sp
-    Text(
-        song.title, color = pal.fg, fontSize = s(if (big) 40f else 32f), fontWeight = FontWeight.Bold,
-        maxLines = 2, overflow = TextOverflow.Ellipsis, lineHeight = s(if (big) 44f else 36f),
-        modifier = Modifier.padding(end = endPad),
-    )
+    LiveTitle(song.title, Repo.settings, big, scale, inverted, Modifier.padding(end = endPad))
     if (song.artist.isNotBlank()) Text(song.artist, color = pal.muted, fontSize = s(18f))
     Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
         song.bpm?.let {
@@ -509,6 +564,35 @@ private fun SectionBlock(n: Int, sec: Section, songBpm: Int?, scale: Float, pal:
                 Modifier.background(pal.staffBg, RoundedCornerShape(6.dp)).padding(horizontal = 6.dp)
             ) { GrooveStaff(gr, 0.9f * scale, pal.staffFg) }
             Spacer(Modifier.height(4.dp))
+        }
+    }
+}
+
+/**
+ * Titolo del brano in live, con colore e stile scelti nelle Impostazioni.
+ * inverted = fase "accesa" del lampeggio: inverte testo colorato e fascia colorata.
+ */
+@Composable
+fun LiveTitle(text: String, st: AppSettings, big: Boolean, scale: Float, inverted: Boolean, modifier: Modifier = Modifier) {
+    val base = st.titleColorC
+    val c = if (Repo.liveLight && st.titleColor == 0xFFFFFFFF) Color.Black else base
+    val size = ((if (big) 40f else 32f) * scale).sp
+    val lh = ((if (big) 44f else 36f) * scale).sp
+    val banner = st.titleBanner != inverted
+    Box(modifier) {
+        if (banner) {
+            Text(
+                text, color = if (c.luminance() > 0.45f) Color.Black else Color.White,
+                fontSize = size, lineHeight = lh, fontWeight = FontWeight.Black,
+                maxLines = 2, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.background(c, RoundedCornerShape(8.dp)).padding(horizontal = 12.dp, vertical = 2.dp),
+            )
+        } else {
+            Text(
+                text, color = c, fontSize = size, lineHeight = lh, fontWeight = FontWeight.Black,
+                maxLines = 2, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
+            )
         }
     }
 }

@@ -19,6 +19,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -90,6 +91,7 @@ fun HomeScreen(nav: Nav, tab: MutableIntState) {
             TopAppBar(
                 title = { Text("DrumChart", fontWeight = FontWeight.Bold) },
                 actions = {
+                    IconButton(onClick = { nav.go(Screen.Settings) }) { Icon(Icons.Default.Settings, "Impostazioni") }
                     IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, "Menu") }
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                         DropdownMenuItem(

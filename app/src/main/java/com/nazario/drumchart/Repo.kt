@@ -40,6 +40,10 @@ object Repo {
     var copiedFrom by mutableStateOf("")
         private set
 
+    /** Impostazioni (pedale, gesti, titolo...). */
+    var settings by mutableStateOf(AppSettings())
+        private set
+
     private lateinit var file: File
     private lateinit var prefs: SharedPreferences
     private lateinit var appCtx: Context
@@ -58,6 +62,8 @@ object Repo {
         autoBackupName = if (autoUri != null) prefs.getString("autoName", "backup") else null
         copiedSection = prefs.getString("clipSection", null)?.let { runCatching { sectionFromJson(JSONObject(it)) }.getOrNull() }
         copiedFrom = prefs.getString("clipFrom", "") ?: ""
+        settings = prefs.getString("settings", null)?.let { runCatching { settingsFromJson(JSONObject(it)) }.getOrNull() }
+            ?: AppSettings()
         if (file.exists()) {
             runCatching { data = appDataFromJson(JSONObject(file.readText())) }
         }
@@ -88,6 +94,11 @@ object Repo {
         copiedSection = sec
         copiedFrom = songTitle
         prefs.edit().putString("clipSection", sec.toJson().toString()).putString("clipFrom", songTitle).apply()
+    }
+
+    fun updateSettings(f: (AppSettings) -> AppSettings) {
+        settings = f(settings)
+        prefs.edit().putString("settings", settings.toJson().toString()).apply()
     }
 
     fun toggleLiveLight() {

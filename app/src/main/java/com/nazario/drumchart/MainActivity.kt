@@ -18,8 +18,13 @@ import androidx.compose.ui.graphics.Color
 
 class MainActivity : ComponentActivity() {
 
-    /** Impostato dalla modalità live per ricevere i tasti del pedale Bluetooth. */
+    /** Impostato dalla modalità live: riceve i tasti e dice se li ha usati. */
     var keyListener: ((Int) -> Boolean)? = null
+
+    /** Impostato dalla schermata Impostazioni per "imparare" i tasti del pedale. */
+    var learnListener: ((Int) -> Unit)? = null
+
+    private val consumed = HashSet<Int>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -29,24 +34,24 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        val l = keyListener
-        if (l != null && event.keyCode in PEDAL_KEYS) {
-            if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) l(event.keyCode)
+        val code = event.keyCode
+        if (code == KeyEvent.KEYCODE_BACK) return super.dispatchKeyEvent(event)
+
+        learnListener?.let { l ->
+            if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) l(code)
             return true
         }
+        val l = keyListener
+        if (l != null) {
+            when (event.action) {
+                KeyEvent.ACTION_DOWN -> {
+                    if (event.repeatCount > 0) { if (code in consumed) return true }
+                    else if (l(code)) { consumed += code; return true }
+                }
+                KeyEvent.ACTION_UP -> if (consumed.remove(code)) return true
+            }
+        }
         return super.dispatchKeyEvent(event)
-    }
-
-    companion object {
-        val NEXT_KEYS = setOf(
-            KeyEvent.KEYCODE_PAGE_DOWN, KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_DPAD_DOWN,
-            KeyEvent.KEYCODE_SPACE, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_MEDIA_NEXT,
-        )
-        val PREV_KEYS = setOf(
-            KeyEvent.KEYCODE_PAGE_UP, KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_UP,
-            KeyEvent.KEYCODE_MEDIA_PREVIOUS,
-        )
-        val PEDAL_KEYS = NEXT_KEYS + PREV_KEYS
     }
 }
 
@@ -72,6 +77,7 @@ sealed interface Screen {
     data class EditSong(val id: String) : Screen
     data class EditSet(val id: String) : Screen
     data class Live(val setlistId: String?, val songId: String?) : Screen
+    data object Settings : Screen
 }
 
 class Nav(private val stack: MutableList<Screen>) {
@@ -93,5 +99,6 @@ fun App() {
         is Screen.EditSong -> SongEditor(cur.id, nav)
         is Screen.EditSet -> SetlistEditor(cur.id, nav)
         is Screen.Live -> LiveScreen(cur.setlistId, cur.songId, nav)
+        Screen.Settings -> SettingsScreen(nav)
     }
 }
