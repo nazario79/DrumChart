@@ -152,7 +152,7 @@ fun HomeScreen(nav: Nav, tab: MutableIntState) {
             }
             val filter = Repo.bandFilter.let { f -> if (f.isNotEmpty() && f != "-" && Repo.band(f) == null) "" else f }
             Spacer(Modifier.height(6.dp))
-            BandFilterRow(filter, { Repo.setBandFilter(it) }, { manageBands = true })
+            BandFilterRow(filter, { Repo.chooseBandFilter(it) }, { manageBands = true })
             val bandsSorted = data.bands.sortedBy { it.name.lowercase() }
             if (tab.intValue == 0) {
                 OutlinedTextField(

@@ -200,7 +200,7 @@ object Repo {
     var bandFilter by mutableStateOf("")
         private set
 
-    fun setBandFilter(v: String) {
+    fun chooseBandFilter(v: String) {
         bandFilter = v
         prefs.edit().putString("bandFilter", v).apply()
     }

@@ -140,7 +140,7 @@ fun ManageBandsDialog(onDismiss: () -> Unit) {
             confirmButton = {
                 TextButton(onClick = {
                     Repo.deleteBand(b.id)
-                    if (Repo.bandFilter == b.id) Repo.setBandFilter("")
+                    if (Repo.bandFilter == b.id) Repo.chooseBandFilter("")
                     delete = null
                 }) { Text("Elimina", color = Color(0xFFE57373)) }
             },
