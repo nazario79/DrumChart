@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -406,6 +407,7 @@ private fun DrawScope.drawGroove(g: Groove, L: Float, color: Color, firstBar: In
 fun GrooveEditor(initial: Groove?, title: String, onDismiss: () -> Unit, onDone: (Groove?) -> Unit) {
     var g by remember { mutableStateOf(initial ?: Groove()) }
     var askMeter by remember { mutableStateOf<String?>(null) }
+    var askClear by remember { mutableStateOf(false) }
     val hScroll = rememberScrollState()
     val cell = 38.dp
     val m = g.m
@@ -452,7 +454,6 @@ fun GrooveEditor(initial: Groove?, title: String, onDismiss: () -> Unit, onDone:
                         Text("Battute", color = Color.LightGray)
                         Stepper(g.bars, { n -> g = g.withBars(n.coerceIn(1, MAX_BARS)) })
                     }
-                    TextButton(onClick = { g = Groove(g.bars, emptyMap(), g.meter) }) { Text("Cancella tutto") }
                 }
                 askMeter?.let { k ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -519,11 +520,32 @@ fun GrooveEditor(initial: Groove?, title: String, onDismiss: () -> Unit, onDone:
                         }
                     }
                 }
-                Text(
-                    "Tocca una casella: 1 volta colpo, 2 volte accento (>), 3 volte ghost note ( ), 4 volte cancella.",
-                    color = Color.Gray, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp),
-                )
+                // In basso a sinistra, lontano da "Fatto", e con conferma
+                Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = { askClear = true }, enabled = !g.isEmpty()) {
+                        Text("Svuota griglia", color = if (g.isEmpty()) Color.DarkGray else Color(0xFFE57373))
+                    }
+                    Spacer(Modifier.width(16.dp))
+                    Text(
+                        "Tocca una casella: 1 volta colpo, 2 volte accento (>), 3 volte ghost note ( ), 4 volte cancella.",
+                        color = Color.Gray, fontSize = 13.sp, modifier = Modifier.weight(1f),
+                    )
+                }
             }
         }
+    }
+
+    if (askClear) {
+        AlertDialog(
+            onDismissRequest = { askClear = false },
+            title = { Text("Svuotare la griglia?") },
+            text = { Text("Tutti i colpi scritti in questa battuta verranno cancellati.") },
+            confirmButton = {
+                TextButton(onClick = { g = Groove(g.bars, emptyMap(), g.meter); askClear = false }) {
+                    Text("Svuota", color = Color(0xFFE57373))
+                }
+            },
+            dismissButton = { TextButton(onClick = { askClear = false }) { Text("Annulla") } },
+        )
     }
 }
