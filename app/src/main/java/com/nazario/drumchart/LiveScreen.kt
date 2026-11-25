@@ -373,9 +373,6 @@ private fun SongHeader(song: Song, scale: Float, pal: LivePal, big: Boolean, end
             Text("♩ $it", color = pal.accent, fontSize = s(if (big) 30f else 26f), fontWeight = FontWeight.Bold)
             Spacer(Modifier.widthIn(min = 20.dp).padding(horizontal = 10.dp))
         }
-        if (song.attacco.isNotBlank()) {
-            Text(song.attacco, color = pal.fg, fontSize = s(if (big) 24f else 22f), fontWeight = FontWeight.SemiBold)
-        }
     }
 }
 
@@ -387,6 +384,12 @@ private fun SongStructure(song: Song, scale: Float, pal: LivePal) {
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
+        if (song.attacco.isNotBlank()) {
+            AttaccoBlock(song.attacco, scale)
+            if (song.sections.isNotEmpty()) {
+                Text("›", color = pal.faint, fontSize = s(34f), modifier = Modifier.align(Alignment.CenterVertically))
+            }
+        }
         song.sections.forEachIndexed { i, sec ->
             SectionBlock(sec, song.bpm, scale, pal)
             if (i < song.sections.lastIndex) {
@@ -438,6 +441,20 @@ private fun NextInfo(e: LiveEntry, total: Int, scale: Float, pal: LivePal) {
         )
     } else if (total > 1) {
         Text("Fine scaletta", color = pal.faint, fontSize = s(16f), modifier = Modifier.padding(top = 10.dp))
+    }
+}
+
+/** Blocco dell'attacco, nella stessa fila delle sezioni. */
+@Composable
+private fun AttaccoBlock(text: String, scale: Float) {
+    fun s(v: Float): TextUnit = (v * scale).sp
+    Column(
+        Modifier.background(Color(0xFFECEFF1), RoundedCornerShape(10.dp))
+            .padding(horizontal = 14.dp, vertical = 8.dp)
+            .widthIn(min = (70 * scale).dp, max = (360 * scale).dp),
+    ) {
+        Text("ATTACCO", color = Color(0xFF455A64), fontSize = s(14f), fontWeight = FontWeight.Bold)
+        Text(text, color = Color.Black, fontSize = s(26f), fontWeight = FontWeight.Black, lineHeight = s(30f))
     }
 }
 
