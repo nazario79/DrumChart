@@ -242,6 +242,7 @@ fun SongEditor(id: String, nav: Nav) {
             GrooveEditor(
                 initial = sec.groove,
                 title = sec.name,
+                bpm = sec.bpm ?: bpmText.trim().toIntOrNull(),
                 onDismiss = { grooveFor = null },
                 onDone = { gr -> updSection(idx) { it.copy(groove = gr) }; grooveFor = null },
             )

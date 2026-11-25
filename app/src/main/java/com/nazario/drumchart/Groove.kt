@@ -4,6 +4,7 @@ import android.graphics.Paint
 import android.graphics.Typeface
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -34,7 +35,15 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.withFrameNanos
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.withContext
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -404,10 +413,29 @@ private fun DrawScope.drawGroove(g: Groove, L: Float, color: Color, firstBar: In
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun GrooveEditor(initial: Groove?, title: String, onDismiss: () -> Unit, onDone: (Groove?) -> Unit) {
+fun GrooveEditor(initial: Groove?, title: String, bpm: Int? = null, onDismiss: () -> Unit, onDone: (Groove?) -> Unit) {
     var g by remember { mutableStateOf(initial ?: Groove()) }
     var askMeter by remember { mutableStateOf<String?>(null) }
     var askClear by remember { mutableStateOf(false) }
+
+    // Player di controllo: solo dentro l'editor
+    val player = remember { LoopPlayer() }
+    var playing by remember { mutableStateOf(false) }
+    var playBpm by remember { mutableIntStateOf((bpm ?: 100).coerceIn(30, 300)) }
+    var click by remember { mutableStateOf(false) }
+    var playStep by remember { mutableIntStateOf(-1) }
+    DisposableEffect(Unit) { onDispose { player.stop() } }
+    LaunchedEffect(playing, g, playBpm, click) {
+        if (!playing) { player.stop(); playStep = -1; return@LaunchedEffect }
+        delay(150) // mentre scrivi aspetta un attimo prima di ricalcolare
+        val pcm = withContext(Dispatchers.Default) { DrumSynth.render(g, playBpm, click) }
+        player.play(pcm)
+        val sf = DrumSynth.stepFrames(g, playBpm)
+        while (isActive) {
+            playStep = player.position(sf)
+            withFrameNanos { }
+        }
+    }
     val hScroll = rememberScrollState()
     val cell = 38.dp
     val m = g.m
@@ -455,6 +483,21 @@ fun GrooveEditor(initial: Groove?, title: String, onDismiss: () -> Unit, onDone:
                         Stepper(g.bars, { n -> g = g.withBars(n.coerceIn(1, MAX_BARS)) })
                     }
                 }
+                // player
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier.padding(top = 4.dp),
+                ) {
+                    Button(onClick = { playing = !playing }) { Text(if (playing) "■  Stop" else "▶  Ascolta") }
+                    Spacer(Modifier.width(8.dp))
+                    TextButton(onClick = { playBpm = (playBpm - 5).coerceAtLeast(30) }) { Text("−5") }
+                    Stepper(playBpm, { playBpm = it.coerceIn(30, 300) }, min = 30)
+                    TextButton(onClick = { playBpm = (playBpm + 5).coerceAtMost(300) }) { Text("+5") }
+                    Text("BPM", color = Color.LightGray)
+                    Spacer(Modifier.width(8.dp))
+                    FilterChip(selected = click, onClick = { click = !click }, label = { Text("Click") })
+                }
                 askMeter?.let { k ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("Cambiando tempo la griglia si svuota.", color = Color(0xFFFFB74D), modifier = Modifier.weight(1f))
@@ -495,6 +538,10 @@ fun GrooveEditor(initial: Groove?, title: String, onDismiss: () -> Unit, onDone:
                                     val ch = g.at(d, s)
                                     Box(
                                         Modifier.size(cell).padding(2.dp)
+                                            .then(
+                                                if (s == playStep) Modifier.border(2.dp, Color.White, RoundedCornerShape(4.dp))
+                                                else Modifier
+                                            )
                                             .background(
                                                 when (ch) {
                                                     'x' -> Amber
