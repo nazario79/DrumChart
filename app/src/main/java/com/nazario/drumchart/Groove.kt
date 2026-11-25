@@ -60,6 +60,7 @@ import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -419,6 +420,7 @@ fun GrooveEditor(initial: Groove?, title: String, bpm: Int? = null, onDismiss: (
     var askClear by remember { mutableStateOf(false) }
 
     // Player di controllo: solo dentro l'editor
+    val appCtx = LocalContext.current.applicationContext
     val player = remember { LoopPlayer() }
     var playing by remember { mutableStateOf(false) }
     var playBpm by remember { mutableIntStateOf((bpm ?: 100).coerceIn(30, 300)) }
@@ -428,7 +430,10 @@ fun GrooveEditor(initial: Groove?, title: String, bpm: Int? = null, onDismiss: (
     LaunchedEffect(playing, g, playBpm, click) {
         if (!playing) { player.stop(); playStep = -1; return@LaunchedEffect }
         delay(150) // mentre scrivi aspetta un attimo prima di ricalcolare
-        val pcm = withContext(Dispatchers.Default) { DrumSynth.render(g, playBpm, click) }
+        val pcm = withContext(Dispatchers.Default) {
+            DrumKit.ensure(appCtx)
+            DrumSynth.render(g, playBpm, click)
+        }
         player.play(pcm)
         val sf = DrumSynth.stepFrames(g, playBpm)
         while (isActive) {

@@ -1,0 +1,6 @@
+Campioni di batteria usati dal player dell'editor (licenza CC0 1.0 - pubblico dominio):
+- Karoryfer Samples, "Gogodze Phu Vol II" (cassa, rullante, tom, hi-hat)
+  https://github.com/sfzinstruments/karoryfer.gogodze-phu-vol-ii
+- Versilian Community Sample Library - VCSL (piatti sospesi usati come crash e ride)
+  https://github.com/sgossner/VCSL
+I campioni sono stati accorciati, convertiti in mono 44,1 kHz e mixati tra i microfoni.

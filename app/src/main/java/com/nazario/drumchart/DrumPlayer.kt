@@ -1,12 +1,51 @@
 package com.nazario.drumchart
 
+import android.content.Context
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
 import kotlin.math.PI
 import kotlin.math.exp
 import kotlin.math.sin
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import kotlin.random.Random
+
+/**
+ * Campioni reali di batteria acustica (nella cartella assets/kit), tre dinamiche per strumento.
+ * Fonti, entrambe con licenza CC0 (pubblico dominio):
+ *  - Karoryfer Samples "Gogodze Phu Vol II": cassa, rullante, tom, hi-hat;
+ *  - Versilian Community Sample Library (VCSL): piatti sospesi usati come crash e ride.
+ */
+object DrumKit {
+    private val layers = HashMap<Drum, List<FloatArray>>()
+
+    @Synchronized
+    fun ensure(ctx: Context) {
+        if (layers.isNotEmpty()) return
+        Drum.entries.forEach { d ->
+            val l = (0..2).mapNotNull { i ->
+                runCatching { ctx.assets.open("kit/${d.key}_$i.pcm").use { it.readBytes() } }.getOrNull()?.let { toFloat(it) }
+            }
+            if (l.size == 3) layers[d] = l
+        }
+    }
+
+    private fun toFloat(b: ByteArray): FloatArray {
+        val sb = ByteBuffer.wrap(b).order(ByteOrder.LITTLE_ENDIAN).asShortBuffer()
+        return FloatArray(sb.remaining()) { sb.get(it) / 32768f }
+    }
+
+    /** Campione e volume per un colpo: ghost = strato piano, normale e accento = strato forte. */
+    fun hit(d: Drum, ch: Char): Pair<FloatArray, Float>? {
+        val l = layers[d] ?: return null
+        return when (ch) {
+            'g' -> l[0] to 1.0f
+            'A' -> l[2] to 1.0f
+            else -> l[2] to 0.72f
+        }
+    }
+}
 
 /**
  * Suoni di batteria sintetizzati (nessun campione audio) e riproduzione in loop della griglia.
@@ -108,12 +147,33 @@ object DrumSynth {
                 mix[k] += src[i] * gain
             }
         }
+        fun addCut(src: FloatArray, at: Int, gain: Float, maxLen: Int) {
+            val n = minOf(src.size, maxLen)
+            val fade = minOf(600, n)
+            for (i in 0 until n) {
+                val f = if (i >= n - fade && n < src.size) (n - i).toFloat() / fade else 1f
+                mix[(at + i) % total] += src[i] * gain * f
+            }
+        }
+        /** Distanza (in frame) dal prossimo colpo di hi-hat chiuso o pedale: lì l'hi-hat aperto si chiude. */
+        fun hatChoke(from: Int): Int {
+            for (k in 1..g.steps) {
+                val st = (from + k) % g.steps
+                if (g.hit(Drum.HH, st) || g.hit(Drum.HF, st)) return k * sf
+            }
+            return Int.MAX_VALUE
+        }
         for (s in 0 until g.steps) {
             Drum.entries.forEach { d ->
-                when (g.at(d, s)) {
-                    'x' -> add(sound(d), s * sf, 0.7f)
-                    'A' -> add(sound(d), s * sf, 1.0f)
-                    'g' -> add(sound(d), s * sf, 0.22f)
+                val ch = g.at(d, s)
+                if (ch !in HIT_CHARS) return@forEach
+                val real = DrumKit.hit(d, ch)
+                if (real != null) {
+                    val (smp, gain) = real
+                    if (d == Drum.HO) addCut(smp, s * sf, gain, hatChoke(s)) else add(smp, s * sf, gain)
+                } else {
+                    // riserva: suono sintetico
+                    add(sound(d), s * sf, when (ch) { 'A' -> 1.0f; 'g' -> 0.22f; else -> 0.7f })
                 }
             }
             if (withClick && s % g.m.group == 0) add(click(s % g.m.steps == 0), s * sf, 1f)
