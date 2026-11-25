@@ -66,7 +66,10 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun SetlistEditor(id: String, nav: Nav) {
     // Ogni modifica viene salvata subito: così tornando dalla modalità live non si perde nulla.
-    val sl = Repo.setlist(id) ?: Setlist(id = id)
+    val sl = Repo.setlist(id) ?: Setlist(
+        id = id,
+        bandId = Repo.bandFilter.takeIf { it.isNotEmpty() && it != "-" && Repo.band(it) != null },
+    )
     var name by remember(id) { mutableStateOf(sl.name) }
     var picker by remember { mutableStateOf(false) }
     var askDelete by remember { mutableStateOf(false) }
@@ -135,6 +138,8 @@ fun SetlistEditor(id: String, nav: Nav) {
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
+                Text("Band", color = Color.Gray, modifier = Modifier.padding(top = 6.dp))
+                BandSinglePicker(sl.bandId) { b -> save(sl.copy(name = name, bandId = b)) }
             }
             val chains = medleyChains(sl.items)
             itemsIndexed(sl.items, key = { _, it -> it.id }) { i, item ->
@@ -209,6 +214,7 @@ fun SetlistEditor(id: String, nav: Nav) {
 
     if (picker) {
         SongPicker(
+            bandId = sl.bandId,
             onDismiss = { picker = false },
             onPick = { ids ->
                 picker = false
@@ -284,10 +290,13 @@ private fun RaccordoEditor(item: SetItem, song: Song?, next: Song, upd: ((SetIte
 }
 
 @Composable
-private fun SongPicker(onDismiss: () -> Unit, onPick: (List<String>) -> Unit) {
+private fun SongPicker(bandId: String?, onDismiss: () -> Unit, onPick: (List<String>) -> Unit) {
     val selected = remember { mutableStateListOf<String>() }
     var q by remember { mutableStateOf("") }
+    val band = Repo.band(bandId)
+    var onlyBand by remember { mutableStateOf(band != null) }
     val songs = Repo.data.songs
+        .filter { !onlyBand || band == null || band.id in it.bandIds }
         .filter { q.isBlank() || it.title.contains(q, true) || it.artist.contains(q, true) }
         .sortedBy { it.title.lowercase() }
     AlertDialog(
@@ -297,6 +306,10 @@ private fun SongPicker(onDismiss: () -> Unit, onPick: (List<String>) -> Unit) {
             Column {
                 OutlinedTextField(value = q, onValueChange = { q = it }, placeholder = { Text("Cerca") },
                     singleLine = true, modifier = Modifier.fillMaxWidth())
+                if (band != null) {
+                    FilterChip(selected = onlyBand, onClick = { onlyBand = !onlyBand },
+                        label = { Text("Solo brani di ${band.name}") })
+                }
                 if (Repo.data.songs.isEmpty()) Text("Nessun brano in archivio: scrivine prima qualcuno.",
                     color = Color.Gray, modifier = Modifier.padding(top = 12.dp))
                 LazyColumn(Modifier.heightIn(max = 380.dp)) {

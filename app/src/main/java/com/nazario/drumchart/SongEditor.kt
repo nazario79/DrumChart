@@ -63,7 +63,11 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun SongEditor(id: String, nav: Nav) {
     val existing = remember(id) { Repo.song(id) }
-    var song by remember(id) { mutableStateOf(existing ?: Song(id = id)) }
+    var song by remember(id) {
+        // brano nuovo: se nella schermata principale è filtrata una band, appartiene già a quella
+        val f = Repo.bandFilter.takeIf { it.isNotEmpty() && it != "-" && Repo.band(it) != null }
+        mutableStateOf(existing ?: Song(id = id, bandIds = listOfNotNull(f)))
+    }
     var bpmText by remember(id) { mutableStateOf(existing?.bpm?.toString() ?: "") }
     var askDelete by remember { mutableStateOf(false) }
     var grooveFor by remember { mutableStateOf<String?>(null) } // id della sezione
@@ -139,6 +143,10 @@ fun SongEditor(id: String, nav: Nav) {
                         AssistChip(onClick = { song = song.copy(attacco = a) }, label = { Text(a) })
                     }
                 }
+            }
+            item {
+                Text("Band", color = Color.Gray)
+                BandMultiPicker(song.bandIds) { song = song.copy(bandIds = it) }
             }
             item {
                 Text("Nelle scalette di solito è", color = Color.Gray)

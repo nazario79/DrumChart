@@ -20,6 +20,8 @@ data class Section(
     val meter: String = "",
 )
 
+data class Band(val id: String = newId(), val name: String)
+
 data class Song(
     val id: String = newId(),
     val title: String = "",
@@ -29,6 +31,8 @@ data class Song(
     val note: String = "",
     val medley: Boolean = false,
     val sections: List<Section> = emptyList(),
+    /** Band a cui appartiene il brano (anche più di una). */
+    val bandIds: List<String> = emptyList(),
 )
 
 const val ROLE_SINGLE = 0
@@ -50,11 +54,13 @@ data class Setlist(
     val id: String = newId(),
     val name: String = "",
     val items: List<SetItem> = emptyList(),
+    val bandId: String? = null,
 )
 
 data class AppData(
     val songs: List<Song> = emptyList(),
     val setlists: List<Setlist> = emptyList(),
+    val bands: List<Band> = emptyList(),
 )
 
 // ---------------- JSON ----------------
@@ -87,6 +93,7 @@ fun Song.toJson(): JSONObject {
         .put("attacco", attacco).put("note", note).put("medley", medley)
     if (bpm != null) o.put("bpm", bpm)
     o.put("sections", JSONArray().apply { sections.forEach { put(it.toJson()) } })
+    if (bandIds.isNotEmpty()) o.put("bandIds", JSONArray(bandIds))
     return o
 }
 
@@ -101,6 +108,7 @@ fun songFromJson(o: JSONObject): Song {
         note = o.str("note"),
         medley = o.optBoolean("medley", false),
         sections = (0 until arr.length()).map { sectionFromJson(arr.getJSONObject(it)) },
+        bandIds = o.optJSONArray("bandIds")?.let { b -> (0 until b.length()).map { b.getString(it) } } ?: emptyList(),
     )
 }
 
@@ -117,15 +125,20 @@ fun setItemFromJson(o: JSONObject) = SetItem(
     medleyTitle = o.str("medleyTitle"),
 )
 
-fun Setlist.toJson() = JSONObject()
-    .put("id", id).put("name", name)
-    .put("items", JSONArray().apply { items.forEach { put(it.toJson()) } })
+fun Setlist.toJson(): JSONObject {
+    val o = JSONObject()
+        .put("id", id).put("name", name)
+        .put("items", JSONArray().apply { items.forEach { put(it.toJson()) } })
+    if (bandId != null) o.put("bandId", bandId)
+    return o
+}
 
 fun setlistFromJson(o: JSONObject): Setlist {
     val arr = o.optJSONArray("items") ?: JSONArray()
     return Setlist(
         id = o.str("id").ifBlank { newId() },
         name = o.str("name"),
+        bandId = o.str("bandId").ifBlank { null },
         items = (0 until arr.length()).map { i ->
             val io = arr.getJSONObject(i)
             val it = setItemFromJson(io)
@@ -145,11 +158,14 @@ fun AppData.toJson() = JSONObject()
     .put("version", 1)
     .put("songs", JSONArray().apply { songs.forEach { put(it.toJson()) } })
     .put("setlists", JSONArray().apply { setlists.forEach { put(it.toJson()) } })
+    .put("bands", JSONArray().apply { bands.forEach { put(JSONObject().put("id", it.id).put("name", it.name)) } })
 
 fun appDataFromJson(o: JSONObject): AppData {
     val s = o.optJSONArray("songs") ?: JSONArray()
     val l = o.optJSONArray("setlists") ?: JSONArray()
+    val b = o.optJSONArray("bands") ?: JSONArray()
     return AppData(
+        bands = (0 until b.length()).map { i -> b.getJSONObject(i).let { Band(it.str("id").ifBlank { newId() }, it.str("name")) } },
         songs = (0 until s.length()).map { songFromJson(s.getJSONObject(it)) },
         setlists = (0 until l.length()).map { setlistFromJson(l.getJSONObject(it)) },
     )

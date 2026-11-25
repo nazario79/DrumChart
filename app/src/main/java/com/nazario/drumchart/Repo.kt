@@ -62,6 +62,7 @@ object Repo {
         autoBackupName = if (autoUri != null) prefs.getString("autoName", "backup") else null
         copiedSection = prefs.getString("clipSection", null)?.let { runCatching { sectionFromJson(JSONObject(it)) }.getOrNull() }
         copiedFrom = prefs.getString("clipFrom", "") ?: ""
+        bandFilter = prefs.getString("bandFilter", "") ?: ""
         settings = prefs.getString("settings", null)?.let { runCatching { settingsFromJson(JSONObject(it)) }.getOrNull() }
             ?: AppSettings()
         if (file.exists()) {
@@ -170,6 +171,40 @@ object Repo {
 
     fun deleteSetlist(id: String) = update { d -> d.copy(setlists = d.setlists.filter { it.id != id }) }
 
+    // ---------------- Band ----------------
+
+    fun band(id: String?): Band? = data.bands.find { it.id == id }
+
+    fun addBand(name: String): Band {
+        val clean = name.trim()
+        data.bands.find { it.name.equals(clean, true) }?.let { return it }
+        val b = Band(name = clean)
+        update { d -> d.copy(bands = d.bands + b) }
+        return b
+    }
+
+    fun renameBand(id: String, name: String) = update { d ->
+        d.copy(bands = d.bands.map { if (it.id == id) it.copy(name = name.trim()) else it })
+    }
+
+    /** Elimina la band: brani e scalette restano, perdono solo l'associazione. */
+    fun deleteBand(id: String) = update { d ->
+        d.copy(
+            bands = d.bands.filter { it.id != id },
+            songs = d.songs.map { s -> if (id in s.bandIds) s.copy(bandIds = s.bandIds - id) else s },
+            setlists = d.setlists.map { sl -> if (sl.bandId == id) sl.copy(bandId = null) else sl },
+        )
+    }
+
+    /** Filtro band nella schermata principale: "" = tutte, "-" = senza band, altrimenti id. */
+    var bandFilter by mutableStateOf("")
+        private set
+
+    fun setBandFilter(v: String) {
+        bandFilter = v
+        prefs.edit().putString("bandFilter", v).apply()
+    }
+
     // ---------------- Backup ----------------
 
     fun exportTo(ctx: Context, uri: Uri) {
@@ -196,7 +231,10 @@ object Repo {
             val sets = LinkedHashMap<String, Setlist>()
             d.setlists.forEach { sets[it.id] = it }
             imported.setlists.forEach { sets[it.id] = it }
-            AppData(songs.values.toList(), sets.values.toList())
+            val bands = LinkedHashMap<String, Band>()
+            d.bands.forEach { bands[it.id] = it }
+            imported.bands.forEach { bands[it.id] = it }
+            AppData(songs.values.toList(), sets.values.toList(), bands.values.toList())
         }
     }
 }

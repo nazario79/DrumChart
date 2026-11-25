@@ -4,6 +4,8 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -58,6 +60,7 @@ fun HomeScreen(nav: Nav, tab: MutableIntState) {
     var menu by remember { mutableStateOf(false) }
     var pendingImport by remember { mutableStateOf<AppData?>(null) }
     var query by remember { mutableStateOf("") }
+    var manageBands by remember { mutableStateOf(false) }
 
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/json")
@@ -147,6 +150,10 @@ fun HomeScreen(nav: Nav, tab: MutableIntState) {
                 Tab(selected = tab.intValue == 1, onClick = { tab.intValue = 1 },
                     text = { Text("Scalette (${data.setlists.size})") })
             }
+            val filter = Repo.bandFilter.let { f -> if (f.isNotEmpty() && f != "-" && Repo.band(f) == null) "" else f }
+            Spacer(Modifier.height(6.dp))
+            BandFilterRow(filter, { Repo.setBandFilter(it) }, { manageBands = true })
+            val bandsSorted = data.bands.sortedBy { it.name.lowercase() }
             if (tab.intValue == 0) {
                 OutlinedTextField(
                     value = query,
@@ -156,60 +163,88 @@ fun HomeScreen(nav: Nav, tab: MutableIntState) {
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
                 )
-                val songs = data.songs
+                val base = data.songs
                     .filter { query.isBlank() || it.title.contains(query, true) || it.artist.contains(query, true) }
                     .sortedBy { it.title.lowercase() }
+                // gruppi (titolo band, brani): con "Tutte" i brani sono raggruppati per band
+                val groups: List<Pair<String?, List<Song>>> = when (filter) {
+                    "" -> if (bandsSorted.isEmpty()) listOf(null to base)
+                    else bandsSorted.map { b -> b.name to base.filter { b.id in it.bandIds } }
+                        .plus("Senza band" to base.filter { s -> s.bandIds.none { Repo.band(it) != null } })
+                        .filter { it.second.isNotEmpty() }
+                    "-" -> listOf(null to base.filter { s -> s.bandIds.none { Repo.band(it) != null } })
+                    else -> listOf(null to base.filter { filter in it.bandIds })
+                }
                 if (data.songs.isEmpty()) Empty("Nessun brano. Tocca + per scriverne uno.")
+                else if (groups.all { it.second.isEmpty() }) Empty("Nessun brano in questo gruppo.")
                 LazyColumn(contentPadding = PaddingValues(bottom = 96.dp)) {
-                    items(songs, key = { it.id }) { s ->
-                        Row(
-                            Modifier.fillMaxWidth().clickable { nav.go(Screen.EditSong(s.id)) }
-                                .padding(horizontal = 16.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Column(Modifier.weight(1f)) {
-                                Text(s.title.ifBlank { "(senza titolo)" }, style = MaterialTheme.typography.titleMedium)
-                                val sub = listOfNotNull(
-                                    s.artist.ifBlank { null },
-                                    s.bpm?.let { "$it BPM" },
-                                    "${s.sections.size} sezioni",
-                                ).joinToString(" · ")
-                                Text(sub, color = Color.Gray, style = MaterialTheme.typography.bodySmall)
+                    groups.forEach { (header, list) ->
+                        if (header != null) item(key = "h-$header") { GroupHeader(header, list.size) }
+                        items(list, key = { "${header ?: ""}/${it.id}" }) { s ->
+                            Row(
+                                Modifier.fillMaxWidth().clickable { nav.go(Screen.EditSong(s.id)) }
+                                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(s.title.ifBlank { "(senza titolo)" }, style = MaterialTheme.typography.titleMedium)
+                                    val sub = listOfNotNull(
+                                        s.artist.ifBlank { null },
+                                        s.bpm?.let { "$it BPM" },
+                                        "${s.sections.size} sezioni",
+                                    ).joinToString(" · ")
+                                    Text(sub, color = Color.Gray, style = MaterialTheme.typography.bodySmall)
+                                }
+                                IconButton(onClick = { nav.go(Screen.Live(null, s.id)) }) {
+                                    Icon(Icons.Default.PlayArrow, "Live", tint = Amber)
+                                }
                             }
-                            IconButton(onClick = { nav.go(Screen.Live(null, s.id)) }) {
-                                Icon(Icons.Default.PlayArrow, "Live", tint = Amber)
-                            }
+                            HorizontalDivider()
                         }
-                        HorizontalDivider()
                     }
                 }
             } else {
+                val all = data.setlists
+                val groups: List<Pair<String?, List<Setlist>>> = when (filter) {
+                    "" -> if (bandsSorted.isEmpty()) listOf(null to all)
+                    else bandsSorted.map { b -> b.name to all.filter { it.bandId == b.id } }
+                        .plus("Senza band" to all.filter { Repo.band(it.bandId) == null })
+                        .filter { it.second.isNotEmpty() }
+                    "-" -> listOf(null to all.filter { Repo.band(it.bandId) == null })
+                    else -> listOf(null to all.filter { it.bandId == filter })
+                }
                 if (data.setlists.isEmpty()) Empty("Nessuna scaletta. Tocca + per crearne una.")
+                else if (groups.all { it.second.isEmpty() }) Empty("Nessuna scaletta in questo gruppo.")
                 LazyColumn(contentPadding = PaddingValues(bottom = 96.dp)) {
-                    items(data.setlists, key = { it.id }) { sl ->
-                        Row(
-                            Modifier.fillMaxWidth().clickable { nav.go(Screen.EditSet(sl.id)) }
-                                .padding(horizontal = 16.dp, vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Column(Modifier.weight(1f)) {
-                                Text(sl.name.ifBlank { "(senza nome)" }, style = MaterialTheme.typography.titleMedium)
-                                val medleys = medleyChains(sl.items).size
-                                Text(
-                                    "${sl.items.size} brani" + if (medleys > 0) " · $medleys medley" else "",
-                                    color = Color.Gray, style = MaterialTheme.typography.bodySmall,
-                                )
+                    groups.forEach { (header, list) ->
+                        if (header != null) item(key = "h-$header") { GroupHeader(header, list.size) }
+                        items(list, key = { "${header ?: ""}/${it.id}" }) { sl ->
+                            Row(
+                                Modifier.fillMaxWidth().clickable { nav.go(Screen.EditSet(sl.id)) }
+                                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(sl.name.ifBlank { "(senza nome)" }, style = MaterialTheme.typography.titleMedium)
+                                    val medleys = medleyChains(sl.items).size
+                                    Text(
+                                        "${sl.items.size} brani" + if (medleys > 0) " · $medleys medley" else "",
+                                        color = Color.Gray, style = MaterialTheme.typography.bodySmall,
+                                    )
+                                }
+                                IconButton(onClick = { nav.go(Screen.Live(sl.id, null)) }, enabled = sl.items.isNotEmpty()) {
+                                    Icon(Icons.Default.PlayArrow, "Live", tint = if (sl.items.isNotEmpty()) Amber else Color.DarkGray)
+                                }
                             }
-                            IconButton(onClick = { nav.go(Screen.Live(sl.id, null)) }, enabled = sl.items.isNotEmpty()) {
-                                Icon(Icons.Default.PlayArrow, "Live", tint = if (sl.items.isNotEmpty()) Amber else Color.DarkGray)
-                            }
+                            HorizontalDivider()
                         }
-                        HorizontalDivider()
                     }
                 }
             }
         }
     }
+
+    if (manageBands) ManageBandsDialog { manageBands = false }
 
     pendingImport?.let { imp ->
         AlertDialog(
@@ -243,4 +278,15 @@ fun HomeScreen(nav: Nav, tab: MutableIntState) {
 @Composable
 private fun Empty(text: String) {
     Text(text, color = Color.Gray, modifier = Modifier.padding(24.dp))
+}
+
+@Composable
+private fun GroupHeader(name: String, count: Int) {
+    Row(
+        Modifier.fillMaxWidth().background(Color(0xFF1E1E1E)).padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(name.uppercase(), color = Amber, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+        Text("$count", color = Color.Gray)
+    }
 }
