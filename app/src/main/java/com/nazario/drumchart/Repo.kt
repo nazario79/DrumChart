@@ -102,6 +102,13 @@ object Repo {
         prefs.edit().putString("settings", settings.toJson().toString()).apply()
     }
 
+    /** Svuota gli appunti dopo un incolla o un annulla. */
+    fun clearClip() {
+        copiedSection = null
+        copiedFrom = ""
+        prefs.edit().remove("clipSection").remove("clipFrom").apply()
+    }
+
     fun toggleLiveLight() {
         liveLight = !liveLight
         prefs.edit().putBoolean("liveLight", liveLight).apply()

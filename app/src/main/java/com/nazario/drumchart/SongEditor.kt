@@ -234,16 +234,23 @@ fun SongEditor(id: String, nav: Nav) {
             item {
                 Text("Aggiungi sezione", color = Color.Gray)
                 Repo.copiedSection?.let { clip ->
-                    OutlinedButton(
-                        onClick = {
-                            // copia indipendente: nuovo id, modifiche separate tra i due brani
-                            song = song.copy(sections = song.sections + clip.copy(id = newId()))
-                        },
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    Row(
+                        Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        val from = Repo.copiedFrom.ifBlank { null }?.let { " (da \"$it\")" } ?: ""
-                        Text("Incolla: ${clip.name.ifBlank { "sezione" }} · ${clip.bars} batt.$from",
-                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        OutlinedButton(
+                            onClick = {
+                                // copia indipendente: nuovo id, modifiche separate tra i due brani
+                                song = song.copy(sections = song.sections + clip.copy(id = newId()))
+                                Repo.clearClip()
+                            },
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            val from = Repo.copiedFrom.ifBlank { null }?.let { " (da \"$it\")" } ?: ""
+                            Text("Incolla: ${clip.name.ifBlank { "sezione" }} · ${clip.bars} batt.$from",
+                                maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        TextButton(onClick = { Repo.clearClip() }) { Text("Annulla") }
                     }
                 }
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
