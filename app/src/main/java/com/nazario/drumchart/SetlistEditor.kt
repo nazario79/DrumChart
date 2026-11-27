@@ -29,6 +29,9 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.material3.Button
+import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -74,6 +77,9 @@ fun SetlistEditor(id: String, nav: Nav) {
     var picker by remember { mutableStateOf(false) }
     var askDelete by remember { mutableStateOf(false) }
     var menu by remember { mutableStateOf(false) }
+    var createMedley by remember { mutableStateOf(false) }
+    var addToMedley by remember { mutableStateOf<Int?>(null) }
+    val expanded = remember(id) { mutableStateListOf<String>() } // medley aperti (id del primo brano)
     val ctx = LocalContext.current
 
     fun save(s: Setlist) = Repo.saveSetlist(s)
@@ -88,65 +94,12 @@ fun SetlistEditor(id: String, nav: Nav) {
 
     BackHandler { close() }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Scaletta") },
-                navigationIcon = { IconButton(onClick = { close() }) { Icon(Icons.Default.ArrowBack, "Indietro") } },
-                actions = {
-                    IconButton(onClick = { nav.go(Screen.Live(id, null)) }, enabled = sl.items.isNotEmpty()) {
-                        Icon(Icons.Default.PlayArrow, "Live", tint = if (sl.items.isNotEmpty()) Amber else Color.DarkGray)
-                    }
-                    if (Repo.setlist(id) != null) {
-                        IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, "Menu") }
-                        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                            DropdownMenuItem(text = { Text("Duplica scaletta") }, onClick = {
-                                menu = false
-                                val copy = sl.copy(
-                                    id = newId(),
-                                    name = name.ifBlank { "Scaletta" } + " (copia)",
-                                    items = sl.items.map { it.copy(id = newId()) },
-                                )
-                                Repo.saveSetlist(copy)
-                                nav.replace(Screen.EditSet(copy.id))
-                            })
-                            DropdownMenuItem(text = { Text("Invia alla band (testo)") }, onClick = {
-                                menu = false; shareSetlistText(ctx, sl.copy(name = name))
-                            })
-                            DropdownMenuItem(text = { Text("Invia alla band (PDF)") }, onClick = {
-                                menu = false; shareSetlistPdf(ctx, sl.copy(name = name))
-                            })
-                            DropdownMenuItem(text = { Text("Elimina scaletta") }, onClick = {
-                                menu = false; askDelete = true
-                            })
-                        }
-                    }
-                },
-            )
-        },
-    ) { pad ->
-        LazyColumn(
-            modifier = Modifier.padding(pad).fillMaxSize().imePadding(),
-            contentPadding = PaddingValues(12.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            item {
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it; save(sl.copy(name = it)) },
-                    label = { Text("Nome scaletta / serata") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Text("Band", color = Color.Gray, modifier = Modifier.padding(top = 6.dp))
-                BandSinglePicker(sl.bandId) { b -> save(sl.copy(name = name, bandId = b)) }
-            }
-            val chains = medleyChains(sl.items)
-            itemsIndexed(sl.items, key = { _, it -> it.id }) { i, item ->
-                val chain = chains.find { i in it }
-                if (chain != null && chain.first() == i) {
-                    MedleyTitleField(item, chain.size) { t -> updItem(i) { it.copy(medleyTitle = t) } }
-                }
+    /** Scheda di un brano della scaletta (stessa modifica di prima: ruolo, raccordo...). */
+    @Composable
+    fun ItemCard(i: Int) {
+        val item = sl.items[i]
+        val chains = medleyChains(sl.items)
+        val chain = chains.find { i in it }
                 val song = Repo.song(item.songId)
                 val next = sl.items.getOrNull(i + 1)?.let { Repo.song(it.songId) }
                 val linked = chains.linksNext(i)
@@ -202,10 +155,102 @@ fun SetlistEditor(id: String, nav: Nav) {
                         }
                     }
                 }
+            
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Scaletta") },
+                navigationIcon = { IconButton(onClick = { close() }) { Icon(Icons.Default.ArrowBack, "Indietro") } },
+                actions = {
+                    IconButton(onClick = { nav.go(Screen.Live(id, null)) }, enabled = sl.items.isNotEmpty()) {
+                        Icon(Icons.Default.PlayArrow, "Live", tint = if (sl.items.isNotEmpty()) Amber else Color.DarkGray)
+                    }
+                    if (Repo.setlist(id) != null) {
+                        IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, "Menu") }
+                        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                            DropdownMenuItem(text = { Text("Duplica scaletta") }, onClick = {
+                                menu = false
+                                val copy = sl.copy(
+                                    id = newId(),
+                                    name = name.ifBlank { "Scaletta" } + " (copia)",
+                                    items = sl.items.map { it.copy(id = newId()) },
+                                )
+                                Repo.saveSetlist(copy)
+                                nav.replace(Screen.EditSet(copy.id))
+                            })
+                            DropdownMenuItem(text = { Text("Invia alla band (testo)") }, onClick = {
+                                menu = false; shareSetlistText(ctx, sl.copy(name = name))
+                            })
+                            DropdownMenuItem(text = { Text("Invia alla band (PDF)") }, onClick = {
+                                menu = false; shareSetlistPdf(ctx, sl.copy(name = name))
+                            })
+                            DropdownMenuItem(text = { Text("Elimina scaletta") }, onClick = {
+                                menu = false; askDelete = true
+                            })
+                        }
+                    }
+                },
+            )
+        },
+    ) { pad ->
+        LazyColumn(
+            modifier = Modifier.padding(pad).fillMaxSize().imePadding(),
+            contentPadding = PaddingValues(12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            item {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it; save(sl.copy(name = it)) },
+                    label = { Text("Nome scaletta / serata") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text("Band", color = Color.Gray, modifier = Modifier.padding(top = 6.dp))
+                BandSinglePicker(sl.bandId) { b -> save(sl.copy(name = name, bandId = b)) }
+            }
+            val chains = medleyChains(sl.items)
+            var i = 0
+            while (i < sl.items.size) {
+                val chain = chains.find { it.first() == i }
+                if (chain != null) {
+                    val firstId = sl.items[i].id
+                    val open = firstId in expanded
+                    val c = chain
+                    item(key = "mh-$firstId") {
+                        MedleyHeader(
+                            first = sl.items[c.first()],
+                            titles = c.map { Repo.song(sl.items[it].songId)?.title ?: "?" },
+                            open = open,
+                            canUp = c.first() > 0,
+                            canDown = c.last() < sl.items.lastIndex,
+                            onToggle = { if (open) expanded.remove(firstId) else expanded.add(firstId) },
+                            onTitle = { t -> updItem(c.first()) { it.copy(medleyTitle = t) } },
+                            onMove = { d -> setItems(moveBlock(sl.items, chains, c.first(), c.last(), d)) },
+                            onAdd = { addToMedley = c.last() },
+                            onDissolve = {
+                                setItems(sl.items.mapIndexed { j, it -> if (j in c) it.copy(role = ROLE_SINGLE, medleyTitle = "") else it })
+                            },
+                        )
+                    }
+                    if (open) c.forEach { idx -> item(key = sl.items[idx].id) { ItemCard(idx) } }
+                    i = c.last() + 1
+                } else {
+                    val idx = i
+                    item(key = sl.items[idx].id) { ItemCard(idx) }
+                    i++
+                }
             }
             item {
-                OutlinedButton(onClick = { picker = true }, modifier = Modifier.fillMaxWidth()) {
-                    Icon(Icons.Default.Add, null); Spacer(Modifier.width(6.dp)); Text("Aggiungi brani")
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = { picker = true }, modifier = Modifier.weight(1f)) {
+                        Icon(Icons.Default.Add, null); Spacer(Modifier.width(6.dp)); Text("Aggiungi brani")
+                    }
+                    Button(onClick = { createMedley = true }, modifier = Modifier.weight(1f)) {
+                        Icon(Icons.Default.Add, null); Spacer(Modifier.width(6.dp)); Text("Crea medley")
+                    }
                 }
                 Spacer(Modifier.height(80.dp))
             }
@@ -216,9 +261,43 @@ fun SetlistEditor(id: String, nav: Nav) {
         SongPicker(
             bandId = sl.bandId,
             onDismiss = { picker = false },
-            onPick = { ids ->
+            onPick = { ids, _ ->
                 picker = false
-                setItems(sl.items + ids.map { SetItem(songId = it, role = if (Repo.song(it)?.medley == true) ROLE_IN else ROLE_SINGLE) })
+                setItems(sl.items + ids.map { SetItem(songId = it, role = ROLE_SINGLE) })
+            },
+        )
+    }
+
+    if (createMedley) {
+        SongPicker(
+            bandId = sl.bandId,
+            medley = true,
+            onDismiss = { createMedley = false },
+            onPick = { ids, title ->
+                createMedley = false
+                val newItems = ids.mapIndexed { k, sid ->
+                    SetItem(
+                        songId = sid,
+                        role = if (k == ids.lastIndex) ROLE_END else ROLE_IN,
+                        medleyTitle = if (k == 0) title.trim() else "",
+                    )
+                }
+                expanded.add(newItems.first().id)
+                setItems(sl.items + newItems)
+            },
+        )
+    }
+
+    addToMedley?.let { lastIdx ->
+        SongPicker(
+            bandId = sl.bandId,
+            onDismiss = { addToMedley = null },
+            onPick = { ids, _ ->
+                addToMedley = null
+                // i nuovi brani vanno in fondo al medley: l'ultimo diventa quello che lo chiude
+                val before = sl.items.take(lastIdx + 1).mapIndexed { j, it -> if (j == lastIdx) it.copy(role = ROLE_IN) else it }
+                val added = ids.mapIndexed { k, sid -> SetItem(songId = sid, role = if (k == ids.lastIndex) ROLE_END else ROLE_IN) }
+                setItems(before + added + sl.items.drop(lastIdx + 1))
             },
         )
     }
@@ -290,9 +369,15 @@ private fun RaccordoEditor(item: SetItem, song: Song?, next: Song, upd: ((SetIte
 }
 
 @Composable
-private fun SongPicker(bandId: String?, onDismiss: () -> Unit, onPick: (List<String>) -> Unit) {
+private fun SongPicker(
+    bandId: String?,
+    medley: Boolean = false,
+    onDismiss: () -> Unit,
+    onPick: (List<String>, String) -> Unit,
+) {
     val selected = remember { mutableStateListOf<String>() }
     var q by remember { mutableStateOf("") }
+    var title by remember { mutableStateOf("") }
     val band = Repo.band(bandId)
     var onlyBand by remember { mutableStateOf(band != null) }
     val songs = Repo.data.songs
@@ -301,9 +386,16 @@ private fun SongPicker(bandId: String?, onDismiss: () -> Unit, onPick: (List<Str
         .sortedBy { it.title.lowercase() }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Aggiungi brani") },
+        title = { Text(if (medley) "Crea medley" else "Aggiungi brani") },
         text = {
             Column {
+                if (medley) {
+                    OutlinedTextField(value = title, onValueChange = { title = it }, singleLine = true,
+                        label = { Text("Titolo del medley") }, placeholder = { Text("es. Medley Anni 80") },
+                        modifier = Modifier.fillMaxWidth())
+                    Text("Tocca i brani nell'ordine in cui li suonate.", color = Color.Gray,
+                        style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(vertical = 4.dp))
+                }
                 OutlinedTextField(value = q, onValueChange = { q = it }, placeholder = { Text("Cerca") },
                     singleLine = true, modifier = Modifier.fillMaxWidth())
                 if (band != null) {
@@ -320,7 +412,12 @@ private fun SongPicker(bandId: String?, onDismiss: () -> Unit, onPick: (List<Str
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Checkbox(checked = sel, onCheckedChange = { if (sel) selected.remove(s.id) else selected.add(s.id) })
-                            Column {
+                            if (sel && medley) {
+                                Text("${selected.indexOf(s.id) + 1}", color = Color.Black, fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.background(Amber, RoundedCornerShape(4.dp)).padding(horizontal = 6.dp))
+                                Spacer(Modifier.width(8.dp))
+                            }
+                            Column(Modifier.weight(1f)) {
                                 Text(s.title)
                                 if (s.artist.isNotBlank()) Text(s.artist, color = Color.Gray, style = MaterialTheme.typography.bodySmall)
                             }
@@ -330,10 +427,94 @@ private fun SongPicker(bandId: String?, onDismiss: () -> Unit, onPick: (List<Str
             }
         },
         confirmButton = {
-            TextButton(onClick = { onPick(selected.toList()) }, enabled = selected.isNotEmpty()) {
-                Text("Aggiungi (${selected.size})")
+            TextButton(
+                onClick = { onPick(selected.toList(), title) },
+                enabled = if (medley) selected.size >= 2 else selected.isNotEmpty(),
+            ) {
+                Text(if (medley) "Crea (${selected.size} brani)" else "Aggiungi (${selected.size})")
             }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Annulla") } },
     )
+}
+
+/** Sposta in su (d = -1) o in giù (d = +1) un blocco di brani, scavalcando il blocco vicino (anche un altro medley). */
+private fun moveBlock(items: List<SetItem>, chains: List<List<Int>>, a: Int, b: Int, d: Int): List<SetItem> {
+    val block = items.subList(a, b + 1)
+    return if (d < 0) {
+        if (a == 0) return items
+        val prev = chains.find { (a - 1) in it }?.first() ?: (a - 1)
+        items.take(prev) + block + items.subList(prev, a) + items.drop(b + 1)
+    } else {
+        if (b >= items.lastIndex) return items
+        val next = chains.find { (b + 1) in it }?.last() ?: (b + 1)
+        items.take(a) + items.subList(b + 1, next + 1) + block + items.drop(next + 1)
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MedleyHeader(
+    first: SetItem,
+    titles: List<String>,
+    open: Boolean,
+    canUp: Boolean,
+    canDown: Boolean,
+    onToggle: () -> Unit,
+    onTitle: (String) -> Unit,
+    onMove: (Int) -> Unit,
+    onAdd: () -> Unit,
+    onDissolve: () -> Unit,
+) {
+    var t by remember(first.id) { mutableStateOf(first.medleyTitle) }
+    var askDissolve by remember { mutableStateOf(false) }
+    Card(
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF2A2210)),
+        border = BorderStroke(2.dp, Amber),
+        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+    ) {
+        Column(Modifier.padding(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onToggle) {
+                    Icon(if (open) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowRight,
+                        if (open) "Chiudi" else "Apri", tint = Amber)
+                }
+                Column(Modifier.weight(1f).clickable { onToggle() }) {
+                    Text(
+                        (t.ifBlank { "Medley" }).uppercase(), color = Amber, fontWeight = FontWeight.Black,
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Text("${titles.size} brani", color = Color.Gray, style = MaterialTheme.typography.bodySmall)
+                }
+                IconButton(onClick = { onMove(-1) }, enabled = canUp) { Icon(Icons.Default.KeyboardArrowUp, "Sposta su") }
+                IconButton(onClick = { onMove(1) }, enabled = canDown) { Icon(Icons.Default.KeyboardArrowDown, "Sposta giù") }
+            }
+            if (!open) {
+                Text(
+                    titles.joinToString("  ›  "), color = Color.LightGray, maxLines = 2,
+                    overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(start = 12.dp, bottom = 4.dp),
+                )
+            } else {
+                OutlinedTextField(
+                    value = t, onValueChange = { t = it; onTitle(it) },
+                    label = { Text("Titolo del medley") }, placeholder = { Text("es. Medley Anni 80") },
+                    singleLine = true, modifier = Modifier.fillMaxWidth(),
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 4.dp)) {
+                    AssistChip(onClick = onAdd, label = { Text("+ Brani al medley") })
+                    AssistChip(onClick = { askDissolve = true }, label = { Text("Sciogli medley") })
+                }
+            }
+        }
+    }
+    if (askDissolve) {
+        AlertDialog(
+            onDismissRequest = { askDissolve = false },
+            title = { Text("Sciogliere il medley?") },
+            text = { Text("I brani restano in scaletta come singoli, nello stesso ordine.") },
+            confirmButton = { TextButton(onClick = { askDissolve = false; onDissolve() }) { Text("Sciogli") } },
+            dismissButton = { TextButton(onClick = { askDissolve = false }) { Text("Annulla") } },
+        )
+    }
 }
